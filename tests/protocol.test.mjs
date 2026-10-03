@@ -1,4 +1,10 @@
 import {test} from 'node:test';
+import {controllerIdForDevice} from '../src/protocol.mjs';
+test('physical controller identity survives gateway restart and differs for another board',()=>{
+  assert.equal(controllerIdForDevice('m5-001122334455'),controllerIdForDevice('m5-001122334455'));
+  assert.notEqual(controllerIdForDevice('m5-001122334455'),controllerIdForDevice('m5-001122334456'));
+  assert.throws(()=>controllerIdForDevice('PC'),/invalid/);
+});
 import assert from 'node:assert/strict';
 import {ReplayGuard,material,sign,flattenSessions,validateAction,privateIp} from '../src/protocol.mjs';
 const key='a'.repeat(64),epoch='b'.repeat(32),boot='c'.repeat(16);

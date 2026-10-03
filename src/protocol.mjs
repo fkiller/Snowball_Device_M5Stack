@@ -1,4 +1,8 @@
-import {createHmac, timingSafeEqual} from 'node:crypto';
+import {createHmac, createHash, timingSafeEqual} from 'node:crypto';
+export function controllerIdForDevice(deviceId){
+  if(!/^m5-[a-f0-9]{12}$/.test(deviceId))throw Error('invalid_device_identity');
+  return 'ctl_'+createHash('sha256').update(`snowball.controller.v1\nsnowball.device-m5stack\nphysical\n${deviceId}`).digest('hex').slice(0,16);
+}
 import {isIPv4} from 'node:net';
 export const MAX_FRAME = 16384;
 export const privateIp = ip => isIPv4(ip) && (ip.startsWith('127.') || ip.startsWith('10.') || ip.startsWith('192.168.') || (ip.startsWith('172.') && +ip.split('.')[1]>=16 && +ip.split('.')[1]<=31));

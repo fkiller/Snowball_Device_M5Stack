@@ -9,7 +9,7 @@ import {randomBytes} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
 import readline from 'node:readline';
 import {DeviceNavigation} from '../src/navigation.mjs';
-import {ReplayGuard,sign,material,privateIp,MAX_FRAME} from '../src/protocol.mjs';
+import {ReplayGuard,sign,material,privateIp,MAX_FRAME,controllerIdForDevice} from '../src/protocol.mjs';
 
 const root=fileURLToPath(new URL('..',import.meta.url));
 const args=process.argv.slice(2),options={bind:'127.0.0.1',port:47771,backend:'http://127.0.0.1:8765',python:process.env.SNOWBALL_M5_PYTHON??'python'};
@@ -34,14 +34,39 @@ if(options.device&&deviceId)fs.writeFileSync(path.join(directory,'device.json'),
 let serial,lastSeen=0,usbSeen=0,busy=false;
 let view={message:'Middleware unavailable',items:[],connected:false};
 async function api(route,body) {
-  const res=await fetch(options.backend+route,{method:body===undefined?'GET':'POST',headers:{Origin:options.backend,'Content-Type':'application/json','x-snowball-controller':'ctl_'+sign(key,'controller').slice(0,16)},...(body===undefined?{}:{body:JSON.stringify(body)}),signal:AbortSignal.timeout(route==='/v1/harness/models'?20000:4000)});
+  if(!deviceId)throw Error('physical_device_required');
+  const res=await fetch(options.backend+route,{method:body===undefined?'GET':'POST',headers:{Origin:options.backend,'Content-Type':'application/json','x-snowball-controller':controllerIdForDevice(deviceId)},...(body===undefined?{}:{body:JSON.stringify(body)}),signal:AbortSignal.timeout(route==='/v1/harness/models'?45000:4000)});
   const data=await res.json();if(!res.ok)throw Error(data.error??`middleware_http_${res.status}`);return data;
 }
 const shorten=(value,n=64)=>Array.from(String(value??'')).slice(0,n).join('');
 const navigationFile=path.join(directory,'navigation.json');let saved={};try{saved=JSON.parse(fs.readFileSync(navigationFile,'utf8'));}catch{}
-const controller=new DeviceNavigation({api,machineName:os.hostname(),saved,save:value=>fs.writeFileSync(navigationFile,JSON.stringify(value)+'\n',{mode:0o600})});
+let navigationWrite=Promise.resolve(),pendingNavigation,lastNavigation='';
+function saveNavigation(value){
+  const encoded=JSON.stringify(value)+'\n';if(encoded===lastNavigation)return;lastNavigation=encoded;pendingNavigation=encoded;
+  navigationWrite=navigationWrite.then(async()=>{
+    while(pendingNavigation!==undefined){const data=pendingNavigation;pendingNavigation=undefined;const temporary=navigationFile+'.tmp';await fs.promises.writeFile(temporary,data,{mode:0o600});await fs.promises.rename(temporary,navigationFile);}
+  }).catch(()=>{lastNavigation='';console.error('Navigation checkpoint failed');});
+}
+const controller=new DeviceNavigation({api,machineName:os.hostname(),saved,save:saveNavigation});
+let ownedState,loadedIdentity,lastCheckpoint='';
+async function initializeController(){
+  if(loadedIdentity===deviceId)return;
+  ownedState=await api('/v1/controller');
+  if(ownedState.revision>0){const p=ownedState.preferences;controller.saved={sessionKey:ownedState.selection.sessionKey??null,harness:ownedState.selection.harnessPluginId??null,model:p.model||null,effort:p.effort||null,skin:p.skinId??'slate-dark',scroll:p.scroll??0};Object.assign(controller,{harness:controller.saved.harness,model:controller.saved.model,effort:controller.saved.effort,skin:controller.saved.skin,contentIndex:controller.saved.scroll});}
+  controller.initialized=false;loadedIdentity=deviceId;lastCheckpoint='';
+}
+async function checkpointController(){
+  controller.persist();const n=controller.saved;
+  const patch={selection:{...(n.harness?{harnessPluginId:n.harness,harnessInstanceId:'default'}:{}),...(n.sessionKey?{sessionKey:n.sessionKey}:{})},preferences:{model:n.model??'',effort:n.effort??'',skinId:n.skin,scroll:n.scroll}};
+  const encoded=JSON.stringify(patch);if(encoded===lastCheckpoint)return;
+  try{ownedState=await api('/v1/controller',{expectedRevision:ownedState.revision,patch});lastCheckpoint=encoded;}
+  catch(error){if(error.message==='stale_controller_revision'){ownedState=await api('/v1/controller');throw Error('controller_state_changed');}throw error;}
+}
 const state=()=>controller.state();
-const action=async raw=>view=await controller.action(raw);
+const action=async raw=>{
+  await initializeController();const result=await controller.action(raw);
+  await checkpointController();view={...result,deviceId,controllerId:controllerIdForDevice(deviceId)};return view;
+};
 function fault(error){view={...view,connected:false,message:shorten(error.message,120)};return view;}
 const sendSerial=obj=>{if(serial?.stdin.writable&&serial.stdin.writableLength<65536)serial.stdin.write(JSON.stringify(obj)+'\n');};
 if(options.serial){
@@ -54,6 +79,7 @@ if(options.serial){
     if(line.length>32768)return;
     let r;try{r=JSON.parse(line);}catch{return;}
     if(r.type==='hello'&&/^m5-[a-f0-9]{12}$/.test(r.deviceId)&&r.board==='M5Stack'){
+      if(deviceId&&deviceId!==r.deviceId){console.error('USB board differs from the enrolled physical device');return;}
       const first=!usbSeen;
       deviceId=r.deviceId;usbSeen=lastSeen=Date.now();
       const changed=privateIp(r.ip)&&!r.ip.startsWith('127.')&&r.ip!==deviceAddress;
@@ -141,5 +167,5 @@ function connectReverse(){
 const timer=setInterval(()=>{if(serial?.stdin.writable)sendSerial({type:'probe'});connectReverse();},3000);
 connectReverse();
 let closing=false;
-async function close(){if(closing)return;closing=true;clearInterval(timer);serial?.stdin.end();serial?.kill();reverse?.destroy();udp?.close();server.close();broker.close();}
+async function close(){if(closing)return;closing=true;clearInterval(timer);serial?.stdin.end();serial?.kill();reverse?.destroy();udp?.close();server.close();broker.close();await navigationWrite;}
 process.on('SIGINT',()=>void close());process.on('SIGTERM',()=>void close());

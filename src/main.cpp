@@ -24,7 +24,7 @@ static String reverseLine,reverseChallenge;
 static uint32_t reverseStarted=0;
 static snowball::TextInput input;
 static DynamicJsonDocument remoteView(12288);
-static String deviceId,pairKey,hostIp,hostEpoch,bootId,discoverNonce,serialLine,wifiSsid,wifiPassword,notice="USB 연결 또는 Wi-Fi 설정";
+static String deviceId,controllerId,pairKey,hostIp,hostEpoch,bootId,discoverNonce,serialLine,wifiSsid,wifiPassword,notice="USB 연결 또는 Wi-Fi 설정";
 static uint16_t hostPort=47771;
 static uint32_t requestId=0,wireSeq=0,pendingId=0,lastUsb=0,lastPoll=0,lastHello=0,lastDiscovery=0,lastResponse=0,wifiStarted=0;
 static bool faces=false,dirty=true,pending=false,pendingSend=false,scanRunning=false,wifiEditing=false,contrast=false;
@@ -60,10 +60,12 @@ bool safeEqual(const String&a,const String&b){if(a.length()!=b.length())return f
 bool hex(const String&s,size_t length){if(s.length()!=length)return false;for(char c:s)if(!((c>='0'&&c<='9')||(c>='a'&&c<='f')))return false;return true;}
 String material(const char* direction,uint32_t seq,const String&payload){return String(direction)+"\n"+hostEpoch+"\n"+bootId+"\n"+String(seq)+"\n"+payload;}
 void serialJson(JsonDocument&doc){serializeJson(doc,Serial);Serial.println();}
-void hello(){StaticJsonDocument<384>d;d["type"]="hello";d["deviceId"]=deviceId;d["board"]="M5Stack";d["faces"]=faces;d["flashBytes"]=ESP.getFlashChipSize();d["ip"]=WiFi.status()==WL_CONNECTED?WiFi.localIP().toString():String("");d["firmware"]="0.2.0";serialJson(d);lastHello=millis();}
+void hello(){StaticJsonDocument<384>d;d["type"]="hello";d["deviceId"]=deviceId;d["board"]="M5Stack";d["faces"]=faces;d["flashBytes"]=ESP.getFlashChipSize();d["ip"]=WiFi.status()==WL_CONNECTED?WiFi.localIP().toString():String("");d["firmware"]="0.2.1";serialJson(d);lastHello=millis();}
 bool usbOnline(){return lastUsb&&millis()-lastUsb<6500;}
+void toggleInputLanguage(){input.toggle();prefs.putBool("korean",input.korean);}
 bool middlewareOnline(){return lastResponse&&millis()-lastResponse<10000&&remoteView["connected"].as<bool>();}
 void acceptView(JsonVariantConst view){
+  if(view["connected"].as<bool>()&&(view["deviceId"].as<String>()!=deviceId||view["controllerId"].as<String>()!=controllerId)){notice="기기 상태 대상 불일치";pending=false;dirty=true;return;}
   String previous=remoteView["sessionKey"]|"",acceptedOp=pendingOp;pendingOp="";
   remoteView.clear();remoteView.set(view);lastPoll=lastResponse=millis();pending=false;
   notice=String(remoteView["message"]|"");contrast=String(remoteView["skinId"]|"")=="high-contrast";
@@ -255,7 +257,7 @@ void select(){
     if(cursor==0)beginCompose();else if(cursor==1)openRemote("models",3);else if(cursor==2)openRemote("efforts",3);else returnSession();
   } else if(page==COMPOSE){
     if(cursor==0){if(input.text().empty())notice="입력 내용이 없습니다";else if(draftSession!=remoteView["sessionKey"].as<String>())notice="세션 변경: 기존 입력을 먼저 지우세요";else {page=CONFIRM;commandId=randomHex(16);nav.list(2,0,3);}}
-    else if(cursor==1){input.toggle();notice=input.korean?"한글 두벌식":"English";}
+    else if(cursor==1){toggleInputLanguage();notice=input.korean?"한글 두벌식":"English";}
     else if(cursor==2){input.clear();draftSession=remoteView["sessionKey"].as<String>();}
     else returnSession();
   } else if(page==CONFIRM){
@@ -285,7 +287,7 @@ void buttonAction(int button,snowball::Gesture event){
   if(event==Gesture::Click)select();
   else if(event==Gesture::Hold){
     if(page==WIFI_PASSWORD){if(wifiEditing){passwordVisible=!passwordVisible;dirty=true;}else back();}
-    else if(page==COMPOSE){input.toggle();dirty=true;}
+    else if(page==COMPOSE){toggleInputLanguage();dirty=true;}
     else if(page==CONFIRM)back();
     else if(page==SESSION_CONTENT){page=ACTIONS;nav.list(5,0,3);dirty=true;}
     else back();
@@ -296,7 +298,7 @@ void buttonAction(int button,snowball::Gesture event){
 }
 void keyboard(uint8_t c){
   if(page==COMPOSE&&nav.focus==snowball::Focus::Content){
-    if(c==9)input.toggle();else if(c==8||c==127)input.backspace();
+    if(c==9)toggleInputLanguage();else if(c==8||c==127)input.backspace();
     else if(c==13||c==10){nav.index=0;select();}else if(c==27)back();else if(c>=32&&c<127)input.append(c);dirty=true;return;
   }
   if(page==WIFI_PASSWORD&&nav.focus==snowball::Focus::Content){String &value=wifiEditing?wifiPassword:wifiSsid;size_t limit=wifiEditing?63:32;
@@ -442,7 +444,11 @@ void setup(){
   canvas.setColorDepth(8);if(!canvas.createSprite(320,240)){M5.Display.print("Display allocation failed");while(true)delay(1000);}
   Wire.begin(21,22,100000);Wire.beginTransmission(0x08);faces=Wire.endTransmission()==0;pinMode(5,INPUT_PULLUP);
   uint64_t mac=ESP.getEfuseMac();char id[20];snprintf(id,sizeof(id),"m5-%02x%02x%02x%02x%02x%02x",(uint8_t)mac,(uint8_t)(mac>>8),(uint8_t)(mac>>16),(uint8_t)(mac>>24),(uint8_t)(mac>>32),(uint8_t)(mac>>40));deviceId=id;bootId=randomHex(8);
+  String identity=String("snowball.controller.v1\nsnowball.device-m5stack\nphysical\n")+deviceId;uint8_t digest[32];
+  mbedtls_md(mbedtls_md_info_from_type(MBEDTLS_MD_SHA256),(const unsigned char*)identity.c_str(),identity.length(),digest);controllerId="ctl_";
+  for(int i=0;i<8;i++){char h[3];snprintf(h,3,"%02x",digest[i]);controllerId+=h;}
   prefs.begin("snowball",false);pairKey=prefs.getString("pair","");wifiSsid=prefs.getString("ssid","");wifiPassword=prefs.getString("password","");WiFi.persistent(false);
+  input.korean=prefs.getBool("korean",false);
   WiFi.onEvent([](WiFiEvent_t type,WiFiEventInfo_t event){
     if(type==ARDUINO_EVENT_WIFI_SCAN_DONE)scanEventStatus.store(event.wifi_scan_done.status);
     else if(type==ARDUINO_EVENT_WIFI_STA_GOT_IP)wifiAssociationReady.store(true);

@@ -16,6 +16,8 @@ These 320×240 images were captured from the real M5Stack 0.2.0 framebuffer on 2
 
 The system architecture and deployment verification are maintained only in [Snowball_Control/docs/ARCHITECTURE.md](https://github.com/fkiller/Snowball_Control/blob/main/docs/ARCHITECTURE.md).
 
+Version 0.2.1 requires the middleware's `/v1/controller` API. Each enrolled board restores its own session, model/effort, theme and scroll position; keyboard language persists on the board. M5Stack navigation does not change MK20 or Supervisor tab selections. The gallery above records the earlier 0.2.0 rendering.
+
 ## Build and upload
 
 Requires Node >=22.12, Python 3.12, and the CP210x serial driver. Use an explicit serial port belonging to this board; a USB UART VID/PID alone does not identify the product. Back up existing flash before uploading.

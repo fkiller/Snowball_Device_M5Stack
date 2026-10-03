@@ -2,6 +2,13 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {DeviceNavigation,windowStart,harnessAbbreviation,wrapLines,sessionText} from '../src/navigation.mjs';
 const snapshot={accessMode:'local-no-auth',hostname:'REAL-PC',realSessions:{'snowball.codex':{project:Array.from({length:30},(_,i)=>({id:'n'+i,sessionKey:'k'+i,title:'Session '+i,ownerId:'real-owner',revision:7,readOnly:false}))},'snowball.antigravity':{other:[{id:'agy',sessionKey:'agy-key',title:'AGY session',readOnly:true}]}},commands:[],turnsStore:{k14:[{role:'user',text:'native question',agentResponse:'실제 응답\n'+('line\n'.repeat(100))}]}};
+test('two devices retain independent selection, theme, model and scroll across own restart',async()=>{
+  let saved;const make=options=>new DeviceNavigation({api:async()=>snapshot,machineName:'REAL-PC',...options});
+  const a=make({saved:{sessionKey:'k14',model:'native-choice',effort:'native-effort'},save:value=>saved=structuredClone(value)}),b=make({saved:{sessionKey:'k0'}});
+  await a.action({op:'skin'});await a.action({op:'read',index:50});a.persist();
+  const second=await b.action({op:'poll'});assert.equal(second.sessionKey,'k0');assert.equal(second.skinId,'slate-dark');assert.equal(second.contentOffset,0);
+  const restored=await make({saved}).action({op:'poll'});assert.equal(restored.sessionKey,'k14');assert.equal(restored.skinId,'high-contrast');assert.equal(restored.model,'native-choice');assert.equal(restored.contentOffset,50);
+});
 test('selected session is anchored at first, middle or last viewport position',()=>{
   assert.equal(windowStart(30,0),0);assert.equal(windowStart(30,14),11);assert.equal(windowStart(30,29),23);
 });

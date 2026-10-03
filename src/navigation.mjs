@@ -33,9 +33,9 @@ export function sessionText(snapshot,current){
 }
 export class DeviceNavigation {
   constructor({api,machineName,saved={},save=()=>{}}){
-    Object.assign(this,{api,machineName,save,saved,selection:null,harness:saved.harness??null,model:null,effort:null,
-      menu:[],menuKind:'',menuIndex:0,lastCommand:null,skin:'slate-dark',override:null,snapshotCache:null,
-      catalogPending:false,catalogGeneration:0,contentIndex:0,contentLines:[],contentHash:''});
+    Object.assign(this,{api,machineName,save,saved,selection:null,harness:saved.harness??null,model:saved.model??null,effort:saved.effort??null,
+      menu:[],menuKind:'',menuIndex:0,lastCommand:null,skin:saved.skin??'slate-dark',override:null,snapshotCache:null,
+      catalogPending:false,catalogGeneration:0,contentIndex:saved.scroll??0,contentLines:[],contentHash:''});
   }
   async state(){
     const snapshot=await this.api('/v1/snapshot');
@@ -50,7 +50,7 @@ export class DeviceNavigation {
     }
     return snapshot;
   }
-  persist(){this.saved={...this.saved,sessionKey:this.selection?.sessionKey??null,harness:this.harness};this.save(this.saved);}
+  persist(){this.saved={...this.saved,sessionKey:this.selection?.sessionKey??null,harness:this.harness,model:this.model,effort:this.effort,skin:this.skin,scroll:this.contentIndex};this.save(this.saved);}
   harnesses(s){
     return [...new Set([...Object.keys(s.realSessions??{}),...(s.connectedHarnesses??[]).map(h=>h.pluginId),
       ...flattenSessions(s).map(h=>h.pluginId)].filter(Boolean))].map(pluginId=>({label:harnessAbbreviation(pluginId),pluginId}));
