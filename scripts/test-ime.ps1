@@ -10,4 +10,7 @@ try {
   $testCommand = 'call "' + $setup + '" && cl /nologo /EHsc /utf-8 /std:c++17 tests\hangul.cpp /Fe:artifacts\hangul-test.exe /Fo:artifacts\hangul-test.obj && artifacts\hangul-test.exe'
   & cmd.exe /d /c $testCommand
   if ($LASTEXITCODE -ne 0) { throw 'Native IME test failed.' }
+  $navCommand = 'call "' + $setup + '" && cl /nologo /EHsc /utf-8 /std:c++17 tests\navigation.cpp /Fe:artifacts\navigation-test.exe /Fo:artifacts\navigation-test.obj && artifacts\navigation-test.exe'
+  & cmd.exe /d /c $navCommand
+  if ($LASTEXITCODE -ne 0) { throw 'Native navigation test failed.' }
 } finally { Pop-Location }

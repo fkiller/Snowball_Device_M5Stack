@@ -11,6 +11,8 @@
 #include <atomic>
 #include "../firmware/hangul.h"
 #include "../firmware/submission.h"
+#include "../firmware/navigation.h"
+#include "../firmware/snowball_icon.h"
 
 static M5Canvas canvas(&M5.Display);
 static Preferences prefs;
@@ -38,12 +40,18 @@ static std::atomic<bool> wifiAssociationReady{false};
 static int scanAttempts=0,scanLastCode=0,scanTotal=0;
 static String scanNotice;
 static bool passwordVisible=false;
-static String commandId,draftSession;
-enum Page { HOME,REMOTE_LIST,COMPOSE,CONFIRM,WIFI_LIST,WIFI_PASSWORD,READ_REPLY,INFO };
-static Page page=HOME;
-static const char* homeItems[]={"세션 선택 / Sessions","입력 / Compose","모델 / Model","Effort","응답 / Response","Wi-Fi 설정","미들웨어 검색","화면 테마","기기 정보"};
-void back();
-void draw();
+static String commandId,draftSession,pendingOp,expectedMenu;
+static snowball::Navigation nav;
+static snowball::ButtonGesture gestures[3];
+static bool listInitial=false,followTail=false,layoutOk=true;
+static int settingsIndex=0,wifiIndex=0;
+static uint32_t nextContentFetch=0;
+
+enum Page { SESSION_CONTENT=0, HOME=0, READ_REPLY=0, REMOTE_LIST=1, COMPOSE=2, CONFIRM=3, WIFI_LIST=4, WIFI_PASSWORD=5, INFO=7, SETTINGS=8, ACTIONS=9 };
+static Page page=SESSION_CONTENT;
+static const char* settingsItems[]={"Wi-Fi 설정","미들웨어 검색","화면 테마","기기 정보"};
+static const char* actionItems[]={"키보드 입력 / Compose","모델 / Model","Effort","새로고침 / Refresh","내용으로 / Back"};
+void back();void draw();void select();void returnSession(bool top=false);void syncNavigation();
 bool wifiUi(){return page==WIFI_LIST||page==WIFI_PASSWORD||scanRunning;}
 
 String randomHex(size_t bytes){String s;for(size_t i=0;i<bytes;i++){uint8_t b=esp_random()&255;char h[3];snprintf(h,3,"%02x",b);s+=h;}return s;}
@@ -52,19 +60,30 @@ bool safeEqual(const String&a,const String&b){if(a.length()!=b.length())return f
 bool hex(const String&s,size_t length){if(s.length()!=length)return false;for(char c:s)if(!((c>='0'&&c<='9')||(c>='a'&&c<='f')))return false;return true;}
 String material(const char* direction,uint32_t seq,const String&payload){return String(direction)+"\n"+hostEpoch+"\n"+bootId+"\n"+String(seq)+"\n"+payload;}
 void serialJson(JsonDocument&doc){serializeJson(doc,Serial);Serial.println();}
-void hello(){StaticJsonDocument<384>d;d["type"]="hello";d["deviceId"]=deviceId;d["board"]="M5Stack";d["faces"]=faces;d["flashBytes"]=ESP.getFlashChipSize();d["ip"]=WiFi.status()==WL_CONNECTED?WiFi.localIP().toString():String("");d["firmware"]="0.1.0";serialJson(d);lastHello=millis();}
+void hello(){StaticJsonDocument<384>d;d["type"]="hello";d["deviceId"]=deviceId;d["board"]="M5Stack";d["faces"]=faces;d["flashBytes"]=ESP.getFlashChipSize();d["ip"]=WiFi.status()==WL_CONNECTED?WiFi.localIP().toString():String("");d["firmware"]="0.2.0";serialJson(d);lastHello=millis();}
 bool usbOnline(){return lastUsb&&millis()-lastUsb<6500;}
 bool middlewareOnline(){return lastResponse&&millis()-lastResponse<10000&&remoteView["connected"].as<bool>();}
 void acceptView(JsonVariantConst view){
+  String previous=remoteView["sessionKey"]|"",acceptedOp=pendingOp;pendingOp="";
   remoteView.clear();remoteView.set(view);lastResponse=millis();pending=false;
   notice=String(remoteView["message"]|"");contrast=String(remoteView["skinId"]|"")=="high-contrast";
-  if(pendingSend){pendingSend=false;if(remoteView["connected"].as<bool>()&&snowball::journalAdmitted(remoteView["commandStatus"]|"unconfirmed")){input.clear();draftSession="";}page=READ_REPLY;readerOffset=0;}
-  dirty=true;
+  if(pendingSend){pendingSend=false;if(remoteView["connected"].as<bool>()&&snowball::journalAdmitted(remoteView["commandStatus"]|"unconfirmed")){input.clear();draftSession="";}returnSession();}
+  if(page==REMOTE_LIST){
+    String kind=remoteView["menuKind"]|"";
+    if(acceptedOp=="select"&&!kind.isEmpty()){expectedMenu=kind;listInitial=true;nav.returnCrumb=kind=="sessions"?3:kind=="harnesses"?2:1;}
+    if(kind==expectedMenu){nav.configure(remoteView["menuTotal"]|0,7,false);if(listInitial){nav.index=remoteView["menuIndex"]|0;nav.focus=snowball::Focus::Content;listInitial=false;}}
+    else if(acceptedOp=="select"&&kind.isEmpty())returnSession();
+  }
+  if(page==SESSION_CONTENT){
+    if(previous!=String(remoteView["sessionKey"]|"")){nav.index=remoteView["contentOffset"]|0;followTail=false;}
+    nav.configure(remoteView["contentTotal"]|0,11,true);if(followTail)nav.edge(true);
+  }
+  cursor=nav.index;readerOffset=page==SESSION_CONTENT?nav.index:readerOffset;dirty=true;
 }
 void request(const char* op,int index=-1){
   if(String(op)=="poll"&&wifiUi())return;
   if(pending){notice="응답 대기 중 / Waiting";dirty=true;return;}
-  DynamicJsonDocument action(4096);action["op"]=op;if(index>=0)action["index"]=index;
+  pendingOp=op;DynamicJsonDocument action(4096);action["op"]=op;if(index>=0)action["index"]=index;
   bool sending=String(op)=="send";
   if(sending){action["text"]=input.text().c_str();action["commandId"]=commandId;}
   if(usbOnline()){
@@ -109,7 +128,7 @@ void readReverse(){
     if(!pending||!pendingReverse||d["seq"].as<uint32_t>()!=pendingId||d["boot"].as<String>()!=bootId||d["epoch"].as<String>()!=hostEpoch)continue;
     String payload=d["payload"].as<String>();if(!safeEqual(d["mac"].as<String>(),hmac(material("response",pendingId,payload))))continue;
     DynamicJsonDocument v(12288);if(!deserializeJson(v,payload))acceptView(v.as<JsonVariantConst>());
-    if(page==REMOTE_LIST&&remoteView["items"].size()==0&&String(remoteView["menuKind"]|"").isEmpty())back();
+
   }
 }
 void discoverHost(){
@@ -142,7 +161,7 @@ void cancelScan(){
 void finishScan(int count){
   scanDuration=millis()-scanStarted;scanLastCode=count;scanActive=false;scanRunning=false;
   if(count>=0){
-    scanTotal=count;scanCount=min(count,24);cursor=0;
+    scanTotal=count;scanCount=min(count,24);cursor=0;if(page==WIFI_LIST)nav.list(scanCount+3,0,0);
     for(int i=0;i<scanCount;i++){scanNetworks[i].ssid=WiFi.SSID(i);scanNetworks[i].rssi=WiFi.RSSI(i);scanNetworks[i].secure=WiFi.encryptionType(i)!=WIFI_AUTH_OPEN;}
     scanNotice=count?String(count)+" AP / 2.4GHz":"2.4GHz AP 없음 / No APs";
   } else scanNotice="검색 실패 / Scan failed ("+String(count)+")";
@@ -154,7 +173,7 @@ void finishScan(int count){
 }
 void scanWifi(){
   if(pendingSend){notice="전송 확인 후 Wi-Fi 검색";dirty=true;return;}
-  page=WIFI_LIST;dirty=true;
+  page=WIFI_LIST;nav.list(scanCount+3,0,0);dirty=true;
   // Repeated button presses must not clear a scan that is already in flight.
   if(scanRunning)return;
   WiFi.mode(WIFI_STA);WiFi.scanDelete();
@@ -188,54 +207,108 @@ void connectWifi(){
   // begin() can return the old WL_CONNECTED state before the disconnect event.
   // Only a matching existing association or a fresh GOT_IP may persist a key.
   wifiAssociationReady.store(WiFi.status()==WL_CONNECTED&&WiFi.SSID()==wifiSsid&&WiFi.psk()==wifiPassword);
-  WiFi.begin(wifiSsid.c_str(),wifiPassword.c_str());wifiStarted=millis();notice="Wi-Fi 연결 중...";page=HOME;cursor=0;dirty=true;
+  WiFi.begin(wifiSsid.c_str(),wifiPassword.c_str());wifiStarted=millis();notice="Wi-Fi 연결 중...";page=SESSION_CONTENT;nav.focus=snowball::Focus::Content;nav.index=readerOffset;syncNavigation();dirty=true;
 }
-void back(){if(scanRunning)cancelScan();resumeWifi();page=HOME;cursor=0;readerOffset=0;dirty=true;}
+void syncNavigation(){
+  if(page==SESSION_CONTENT){nav.returnCrumb=3;nav.configure(remoteView["contentTotal"]|0,11,true);}
+  else if(page==REMOTE_LIST)nav.configure(listInitial?0:(remoteView["menuTotal"]|0),7,false);
+  else if(page==SETTINGS)nav.configure(4,7,false);
+  else if(page==ACTIONS)nav.configure(5,7,false);
+  else if(page==WIFI_LIST)nav.configure(scanCount+3,7,false);
+  else if(page==COMPOSE)nav.configure(4,4,false);
+  else if(page==WIFI_PASSWORD)nav.configure(wifiEditing?3:2,3,false);
+  else if(page==CONFIRM)nav.configure(2,2,false);
+  else nav.configure(8,11,true);
+  cursor=nav.index;
+}
+void returnSession(bool top){
+  if(scanRunning)cancelScan();resumeWifi();page=SESSION_CONTENT;
+  nav.index=readerOffset;nav.focus=top?snowball::Focus::Top:snowball::Focus::Content;syncNavigation();
+  expectedMenu="";listInitial=false;request("read",nav.index);dirty=true;
+}
+void openRemote(const char* kind,int origin){
+  if(pending){notice="응답 대기 중";dirty=true;return;}
+  page=REMOTE_LIST;expectedMenu=kind;listInitial=true;nav.list(0,0,origin);request(kind);dirty=true;
+}
+void beginCompose(){
+  if(String(remoteView["sessionKey"]|"").isEmpty()){notice="상단에서 세션을 선택하세요";dirty=true;return;}
+  if(input.text().empty())draftSession=remoteView["sessionKey"].as<String>();
+  page=COMPOSE;nav.list(4,0,3);dirty=true;
+}
+void back(){
+  if(page==WIFI_PASSWORD){page=WIFI_LIST;passwordVisible=false;nav.list(scanCount+3,wifiIndex,0);dirty=true;return;}
+  if(page==WIFI_LIST||page==INFO){if(scanRunning)cancelScan();resumeWifi();page=SETTINGS;nav.list(4,settingsIndex,0);dirty=true;return;}
+  if(page==CONFIRM){page=COMPOSE;nav.list(4,0,3);dirty=true;return;}
+  returnSession();
+}
 void select(){
-  if(page==HOME){
-    switch(cursor){
-      case 0:page=REMOTE_LIST;cursor=0;request("sessions");break;
-      case 1:
-        if(!middlewareOnline()||String(remoteView["session"]|"")=="Select a session"){notice="먼저 세션을 선택하세요";break;}
-        if(!input.text().empty()&&draftSession!=remoteView["sessionKey"].as<String>()){notice="기존 입력: C 길게 삭제 후 새 세션 입력";page=COMPOSE;break;}
-        draftSession=remoteView["sessionKey"].as<String>();page=COMPOSE;break;
-      case 2:page=REMOTE_LIST;cursor=0;request("models");break;
-      case 3:page=REMOTE_LIST;cursor=0;request("efforts");break;
-      case 4:page=READ_REPLY;readerOffset=0;request("read");break;
-      case 5:scanWifi();break;
-      case 6:discoverHost();break;
-      case 7:contrast=!contrast;request("skin");break;
-      case 8:page=INFO;break;
-    }
-  } else if(page==REMOTE_LIST){request("select",cursor);cursor=0;}
-  else if(page==COMPOSE){if(input.text().empty()){notice="입력 내용이 없습니다";}else {page=CONFIRM;commandId=randomHex(16);}}
-  else if(page==CONFIRM){if(draftSession!=remoteView["sessionKey"].as<String>()){notice="세션 변경. 전송 취소";page=COMPOSE;}else request("send");}
-  else if(page==WIFI_LIST){
-    if(scanRunning)return;
-    if(cursor<scanCount){wifiSsid=scanNetworks[cursor].ssid;wifiPassword="";wifiEditing=true;passwordVisible=false;page=WIFI_PASSWORD;notice="암호 입력 후 Enter / B";}
+  cursor=nav.index;
+  if(nav.focus==snowball::Focus::Top){
+    if(nav.crumb==0){page=SETTINGS;nav.list(4,settingsIndex,0);}
+    else openRemote(nav.crumb==1?"machines":nav.crumb==2?"harnesses":"sessions",nav.crumb);
+  } else if(page==REMOTE_LIST){if(!listInitial&&!pending)request("select",cursor);}
+  else if(page==SESSION_CONTENT)beginCompose();
+  else if(page==SETTINGS){
+    settingsIndex=cursor;
+    if(cursor==0)scanWifi();else if(cursor==1)discoverHost();else if(cursor==2){contrast=!contrast;request("skin");}else {page=INFO;nav.list(8,0,0);nav.reader=true;}
+  } else if(page==ACTIONS){
+    if(cursor==0)beginCompose();else if(cursor==1)openRemote("models",3);else if(cursor==2)openRemote("efforts",3);else returnSession();
+  } else if(page==COMPOSE){
+    if(cursor==0){if(input.text().empty())notice="입력 내용이 없습니다";else if(draftSession!=remoteView["sessionKey"].as<String>())notice="세션 변경: 기존 입력을 먼저 지우세요";else {page=CONFIRM;commandId=randomHex(16);nav.list(2,0,3);}}
+    else if(cursor==1){input.toggle();notice=input.korean?"한글 두벌식":"English";}
+    else if(cursor==2){input.clear();draftSession=remoteView["sessionKey"].as<String>();}
+    else returnSession();
+  } else if(page==CONFIRM){
+    if(cursor==1)back();else if(draftSession!=remoteView["sessionKey"].as<String>()){notice="세션 변경. 전송 취소";back();}else request("send");
+  } else if(page==WIFI_LIST){
+    if(scanRunning)return;wifiIndex=cursor;
+    if(cursor<scanCount){wifiSsid=scanNetworks[cursor].ssid;wifiPassword="";wifiEditing=true;passwordVisible=false;page=WIFI_PASSWORD;nav.list(3,0,0);notice="암호 입력 후 연결";}
     else if(cursor==scanCount)scanWifi();
-    else if(cursor==scanCount+1){wifiSsid="";wifiPassword="";wifiEditing=false;passwordVisible=false;page=WIFI_PASSWORD;notice="숨김 SSID 입력 후 Enter";}
+    else if(cursor==scanCount+1){wifiSsid="";wifiPassword="";wifiEditing=false;passwordVisible=false;page=WIFI_PASSWORD;nav.list(2,0,0);notice="숨김 SSID 입력 후 Enter";}
     else {prefs.remove("ssid");prefs.remove("password");resumeAfterScan=false;WiFi.setAutoReconnect(false);WiFi.disconnect(true,true);wifiStarted=0;notice="저장한 Wi-Fi 삭제됨";back();}
-  } else if(page==WIFI_PASSWORD){if(!wifiEditing){wifiEditing=true;notice="Wi-Fi 암호 입력";}else connectWifi();}
-  else back();dirty=true;
+  } else if(page==WIFI_PASSWORD){
+    if(!wifiEditing){if(cursor==0){wifiEditing=true;nav.list(3,0,0);notice="Wi-Fi 암호 입력";}else back();}
+    else if(cursor==0)connectWifi();else if(cursor==1){passwordVisible=!passwordVisible;}else back();
+  } else back();
+  syncNavigation();dirty=true;
 }
-int itemCount(){if(page==HOME)return 9;if(page==REMOTE_LIST)return remoteView["items"].size();if(page==WIFI_LIST)return scanCount+3;return 0;}
-void move(int delta){if(page==READ_REPLY){readerOffset=max(0,readerOffset+delta);dirty=true;return;}int total=itemCount();if(total)cursor=(cursor+delta+total)%total;dirty=true;}
-void keyboard(uint8_t c){
-  if(page==COMPOSE){
-    if(c==9){input.toggle();notice=input.korean?"한글 두벌식":"English";}
-    else if(c==8||c==127)input.backspace();else if(c==13||c==10)select();else if(c==27)back();
-    else if(c>=32&&c<127){if(input.text().empty())draftSession=remoteView["sessionKey"].as<String>();input.append(c);}dirty=true;return;
+void move(int delta,bool paging=false){
+  syncNavigation();auto crossing=nav.move(delta,paging);cursor=nav.index;
+  if(crossing==snowball::Crossing::Top&&page!=SESSION_CONTENT)returnSession(true);
+  if(page==SESSION_CONTENT){readerOffset=nav.index;followTail=false;}
+  dirty=true;
+}
+void buttonAction(int button,snowball::Gesture event){
+  using snowball::Gesture;if(event==Gesture::None)return;
+  if(button!=1){if(event==Gesture::Double){nav.edge(button==2);cursor=nav.index;if(page==SESSION_CONTENT){readerOffset=nav.index;followTail=false;}dirty=true;}
+    else move(button==0?-1:1,event==Gesture::Hold||event==Gesture::Repeat);return;}
+  if(event==Gesture::Click)select();
+  else if(event==Gesture::Hold){
+    if(page==WIFI_PASSWORD){if(wifiEditing){passwordVisible=!passwordVisible;dirty=true;}else back();}
+    else if(page==COMPOSE){input.toggle();dirty=true;}
+    else if(page==CONFIRM)back();
+    else if(page==SESSION_CONTENT){page=ACTIONS;nav.list(5,0,3);dirty=true;}
+    else back();
+  } else if(event==Gesture::Double){
+    if(page==SESSION_CONTENT&&nav.focus==snowball::Focus::Content){nav.edge(true);readerOffset=nav.index;followTail=true;dirty=true;}
+    else if(page==WIFI_PASSWORD||page==COMPOSE||page==CONFIRM)back();else returnSession();
   }
-  if(page==WIFI_PASSWORD){String &value=wifiEditing?wifiPassword:wifiSsid;size_t limit=wifiEditing?63:32;
+}
+void keyboard(uint8_t c){
+  if(page==COMPOSE&&nav.focus==snowball::Focus::Content){
+    if(c==9)input.toggle();else if(c==8||c==127)input.backspace();
+    else if(c==13||c==10){nav.index=0;select();}else if(c==27)back();else if(c>=32&&c<127)input.append(c);dirty=true;return;
+  }
+  if(page==WIFI_PASSWORD&&nav.focus==snowball::Focus::Content){String &value=wifiEditing?wifiPassword:wifiSsid;size_t limit=wifiEditing?63:32;
     if(c==9&&wifiEditing)passwordVisible=!passwordVisible;
-    else if(c==8||c==127){if(value.length())value.remove(value.length()-1);}else if(c==13||c==10)select();else if(c==27)back();else if(c>=32&&c<127&&value.length()<limit)value+=(char)c;dirty=true;return;
+    else if(c==8||c==127){if(value.length())value.remove(value.length()-1);}else if(c==13||c==10){nav.index=0;select();}else if(c==27)back();else if(c>=32&&c<127&&value.length()<limit)value+=(char)c;dirty=true;return;
   }
   if(c=='w'||c=='W'||c=='a'||c=='A'||c==0xb5||c==0xb4)move(-1);
   else if(c=='s'||c=='S'||c=='d'||c=='D'||c==0xb6||c==0xb7)move(1);
   else if(c==13||c==10||c==' ')select();else if(c==27||c==8)back();
 }
 void screenshot(){
+  if(dirty)draw();
   // Diagnostic capture never exports a user password, even while shown on LCD.
   bool restorePassword=passwordVisible&&page==WIFI_PASSWORD;if(restorePassword){passwordVisible=false;draw();}
   StaticJsonDocument<160>d;d["type"]="screen_begin";d["width"]=320;d["height"]=240;d["format"]="rgb888";serialJson(d);
@@ -252,7 +325,7 @@ void handleSerial(const String&raw){DynamicJsonDocument d(24576);if(deserializeJ
     if(pairKey.length()&&pairKey!=key){notice="등록 키가 다릅니다. A+B+C 길게 눌러 초기화";dirty=true;return;}
     if(pairKey!=key)prefs.putString("pair",key);pairKey=key;hostEpoch=epoch;hostIp=d["host"].as<String>();hostPort=d["port"]|47771;bool first=!lastUsb;lastUsb=millis();if(first&&!pending)request("poll");return;
   }
-  if(type=="response"&&pending&&!pendingReverse&&d["id"].as<uint32_t>()==pendingId){lastUsb=millis();acceptView(d["view"]);if(page==REMOTE_LIST&&remoteView["items"].size()==0&&String(remoteView["menuKind"]|"").isEmpty())back();return;}
+  if(type=="response"&&pending&&!pendingReverse&&d["id"].as<uint32_t>()==pendingId){lastUsb=millis();acceptView(d["view"]);return;}
   if(type=="render"){notice=d["text"].as<String>();dirty=true;return;}
   if(type=="screenshot"){screenshot();return;}
   if(type=="wifi-scan"){
@@ -270,43 +343,97 @@ void handleSerial(const String&raw){DynamicJsonDocument d(24576);if(deserializeJ
     else if(page==WIFI_PASSWORD&&(key==9||key==8||key==27||(key>=32&&key<127)))keyboard(key);
     return;
   }
+  if(type=="nav-check"){
+    if(page==COMPOSE||page==CONFIRM||page==WIFI_PASSWORD)return;
+    String command=d["action"]|"";
+    if(command=="up")move(-1);else if(command=="down")move(1);else if(command=="pgup")move(-1,true);else if(command=="pgdn")move(1,true);
+    else if(command=="home"){nav.edge(false);dirty=true;}else if(command=="end"){nav.edge(true);dirty=true;}
+    else if(command=="select"&&(nav.focus==snowball::Focus::Top||page==REMOTE_LIST))select();
+    else if(command=="content")returnSession();else if(command=="actions"){page=ACTIONS;nav.list(5,0,3);dirty=true;}
+    cursor=nav.index;if(page==SESSION_CONTENT)readerOffset=nav.index;return;
+  }
   if(type=="inspect"){
     DynamicJsonDocument result(16384);result["type"]="inspection";result["deviceId"]=deviceId;result["faces"]=faces;result["wifi"]=WiFi.status()==WL_CONNECTED;result["ip"]=WiFi.localIP().toString();result["paired"]=pairKey.length()==64;result["reverse"]=reverseReady&&reverseClient.connected();result["page"]=(int)page;result["korean"]=input.korean;result["draft"]=input.text().c_str();result["heap"]=ESP.getFreeHeap();result["view"]=remoteView;
     result["scanRunning"]=scanRunning;result["scanCount"]=scanCount;result["scanTotal"]=scanTotal;result["scanCode"]=scanLastCode;result["scanAttempts"]=scanAttempts;result["scanMessage"]=scanNotice;result["scanDurationMs"]=scanDuration;
     result["wifiStatus"]=(int)WiFi.status();result["wifiConnecting"]=wifiStarted!=0;result["pending"]=pending;
+    result["focus"]=nav.focus==snowball::Focus::Top?"top":"content";result["crumb"]=nav.crumb;result["cursor"]=nav.index;result["viewportStart"]=nav.start();result["layoutOk"]=layoutOk;
     result["passwordVisible"]=page==WIFI_PASSWORD&&wifiEditing&&passwordVisible;result["passwordLength"]=page==WIFI_PASSWORD&&wifiEditing?wifiPassword.length():0;
     serialJson(result);return;
   }
   // Hardware QA only: exercise the actual IME and display, never dispatch.
-  if(type=="ime-check"&&!pending){input.clear();input.korean=d["korean"]|false;String keys=d["keys"]|"";if(keys.length()>100)return;for(char c:keys)if(c>=32&&c<127)input.append(c);page=COMPOSE;notice="IME 진단 / USB QA";dirty=true;return;}
-  if(type=="clear-check"&&!pending){input.clear();back();return;}
+  if(type=="ime-check"&&!pending){input.clear();input.korean=d["korean"]|false;String keys=d["keys"]|"";if(keys.length()>100)return;for(char c:keys)if(c>=32&&c<127)input.append(c);page=COMPOSE;nav.list(4,0,3);notice="IME 진단 / USB QA";dirty=true;return;}
+  if(type=="clear-check"&&!pending){input.clear();returnSession();return;}
+}
+String fitText(String label,int width){
+  if(canvas.textWidth(label.c_str())<=width)return label;
+  while(label.length()&&canvas.textWidth((label+"..").c_str())>width){size_t pos=label.length()-1;while(pos>0&&((uint8_t)label[pos]&0xc0)==0x80)pos--;label.remove(pos);}return label+"..";
+}
+void footer(){
+  const uint16_t card=contrast?TFT_BLACK:0x18e7,accent=contrast?TFT_YELLOW:0x07bf;
+  String click="선택",hold="뒤로",twice="내용";
+  if(nav.focus==snowball::Focus::Top){hold="메뉴";}
+  else if(page==SESSION_CONTENT){click="입력";hold="메뉴";twice="최신";}
+  else if(page==COMPOSE){hold="한영";twice="뒤로";}
+  else if(page==WIFI_PASSWORD){hold=wifiEditing?"표시":"뒤로";twice="취소";}
+  else if(page==CONFIRM){hold="취소";twice="취소";}
+  canvas.setFont(&fonts::efontKR_10);canvas.setTextWrap(false);
+  for(int b=0;b<3;b++){
+    int x=2+b*snowball::BoxStride;canvas.fillRoundRect(x,207,104,33,3,card);canvas.drawRoundRect(x,207,104,33,3,accent);
+    bool top=nav.focus==snowball::Focus::Top;
+    String line=b==0?(top?"A ←|-PgUp":"A ↑|-PgUp"):b==2?(top?"C →|-PgDn":"C ↓|-PgDn"):"B "+click+"|-"+hold;
+    String second=b==0?"..Home":b==2?"..End":".."+twice;
+    layoutOk=layoutOk&&canvas.textWidth(line.c_str())<=94&&canvas.textWidth(second.c_str())<=94;
+    canvas.setTextColor(TFT_WHITE,card);canvas.setCursor(x+5,210);canvas.print(line);canvas.setTextColor(accent,card);canvas.setCursor(x+5,224);canvas.print(second);
+  }
 }
 void draw(){
+  syncNavigation();layoutOk=true;
   const uint16_t bg=contrast?TFT_BLACK:0x0843,card=contrast?TFT_BLACK:0x18e7,accent=contrast?TFT_YELLOW:0x07bf;
-  canvas.fillScreen(bg);canvas.setFont(&fonts::efontKR_14);canvas.setTextColor(TFT_WHITE,bg);canvas.setTextWrap(false);
-  canvas.fillRect(0,0,320,30,card);canvas.setTextColor(accent,card);canvas.setCursor(10,7);canvas.print("SNOWBALL / M5 FACES");
-  canvas.setTextColor(middlewareOnline()?TFT_GREEN:TFT_ORANGE,card);canvas.setCursor(247,7);canvas.print(usbOnline()?"USB":WiFi.status()==WL_CONNECTED?"Wi-Fi":"OFFLINE");
-  int total=itemCount();
-  if(page==HOME||page==REMOTE_LIST||page==WIFI_LIST){
-    bool emptyWifi=page==WIFI_LIST&&scanCount==0;
-    if(emptyWifi){canvas.setTextColor(TFT_WHITE,bg);canvas.setCursor(12,42);canvas.print(scanRunning?"검색 중 / Scanning...":"2.4GHz AP 없음 / No APs");}
-    int start=max(0,cursor-4);for(int row=0;row<(emptyWifi?5:6)&&start+row<total;row++){int i=start+row,y=38+(row+(emptyWifi?1:0))*24;uint16_t color=i==cursor?accent:card;canvas.fillRoundRect(7,y,306,22,4,color);canvas.setTextColor(i==cursor?TFT_BLACK:TFT_WHITE,color);canvas.setCursor(13,y+4);
-      String label;if(page==HOME)label=homeItems[i];else if(page==REMOTE_LIST)label=remoteView["items"][i].as<String>();else if(i<scanCount)label=scanNetworks[i].ssid+" "+String(scanNetworks[i].rssi)+"dBm";else label=i==scanCount?"다시 검색 / Scan":i==scanCount+1?"숨김 네트워크 / Hidden":"저장 Wi-Fi 삭제 / Forget";
-      while(canvas.textWidth(label.c_str())>292&&label.length()){size_t pos=label.length()-1;while(pos>0&&((uint8_t)label[pos]&0xc0)==0x80)pos--;label.remove(pos);}canvas.print(label);
+  canvas.fillScreen(bg);canvas.setTextWrap(false);canvas.setFont(&fonts::efontKR_14);
+  canvas.fillRect(0,0,320,29,card);canvas.drawFastHLine(0,29,320,accent);
+  bool top=nav.focus==snowball::Focus::Top;
+  if(top&&nav.crumb==0)canvas.fillRoundRect(1,2,26,25,3,accent);
+  for(int y=0;y<20;y++)for(int x=0;x<20;x++)canvas.drawPixel(4+x,4+y,g_snowball_icon_128[(y*128/20)*128+x*128/20]);
+  int x=30;bool firstCrumb=true;
+  for(int crumb=1;crumb<=3;crumb++){
+    if(crumb==1&&!(top&&nav.crumb<=1))continue;
+    canvas.setTextColor(accent,card);canvas.setCursor(x,7);canvas.print(firstCrumb?"|":">");firstCrumb=false;x+=12;
+    String label=crumb==1?String(remoteView["machine"]|"Machine"):crumb==2?String(remoteView["harness"]|"---"):String(remoteView["session"]|"세션 선택");
+    int budget=crumb==1?84:crumb==2?42:318-x;label=fitText(label,budget-4);int width=min(budget,canvas.textWidth(label.c_str())+4);
+    bool focused=top&&nav.crumb==crumb;canvas.fillRoundRect(x-2,3,width+3,23,3,focused?accent:card);canvas.setTextColor(focused?TFT_BLACK:TFT_WHITE,focused?accent:card);canvas.setCursor(x,7);canvas.print(label);x+=width+3;
+    layoutOk=layoutOk&&x<=320;
+  }
+  canvas.setTextColor(TFT_WHITE,bg);canvas.setFont(&fonts::efontKR_14);
+  if(page==SESSION_CONTENT){
+    if(nav.focus==snowball::Focus::Content)canvas.drawFastVLine(2,35,153,accent);
+    JsonArrayConst lines=remoteView["contentLines"].as<JsonArrayConst>();int offset=remoteView["contentOffset"]|0;
+    if(lines.size()==0){canvas.setCursor(10,43);canvas.print(String(remoteView["sessionKey"]|"").isEmpty()?"상단에서 세션을 선택하세요":"네이티브 세션 내용 없음");}
+    else for(int row=0;row<11&&row<(int)lines.size();row++){String label=lines[row].as<String>();layoutOk=layoutOk&&canvas.textWidth(label.c_str())<=300;canvas.setCursor(10,35+row*14);canvas.print(fitText(label,300));}
+    canvas.setFont(&fonts::efontKR_10);canvas.setTextColor(accent,bg);canvas.setCursor(8,194);String status=String(remoteView["readOnly"]|true)?"읽기 전용":"제어 가능";status+="  "+String(nav.index+1)+"/"+String(remoteView["contentTotal"]|0)+"  "+String(remoteView["model"]|"");canvas.print(fitText(status,304));
+    if(offset!=nav.index){canvas.fillCircle(314,197,2,TFT_ORANGE);}
+  } else if(page==REMOTE_LIST||page==SETTINGS||page==ACTIONS||page==WIFI_LIST){
+    int start=nav.start(),total=nav.total,offset=remoteView["menuOffset"]|0;
+    for(int row=0;row<7&&start+row<total;row++){
+      int index=start+row,y=34+row*22;bool selected=nav.focus==snowball::Focus::Content&&index==nav.index;uint16_t color=selected?accent:card;
+      canvas.fillRoundRect(7,y,306,21,3,color);canvas.setTextColor(selected?TFT_BLACK:TFT_WHITE,color);canvas.setCursor(12,y+3);String label;
+      if(page==SETTINGS)label=settingsItems[index];else if(page==ACTIONS)label=actionItems[index];
+      else if(page==REMOTE_LIST){int local=index-offset;if(!listInitial&&String(remoteView["menuKind"]|"")==expectedMenu&&local>=0&&local<(int)remoteView["items"].size())label=remoteView["items"][local].as<String>();else label="조회 중...";}
+      else if(index<scanCount)label=scanNetworks[index].ssid+" "+String(scanNetworks[index].rssi)+"dBm";else label=index==scanCount?"다시 검색 / Scan":index==scanCount+1?"숨김 네트워크 / Hidden":"저장 Wi-Fi 삭제 / Forget";
+      canvas.print(fitText(label,295));
     }
-    if(page==REMOTE_LIST&&total==0){canvas.setCursor(12,58);canvas.print("목록 없음 / No native entries");}
+    if(total==0){canvas.setTextColor(TFT_WHITE,bg);canvas.setCursor(10,45);canvas.print(pending||listInitial?"실제 목록 조회 중...":"사용 가능한 항목 없음");}
+    canvas.setFont(&fonts::efontKR_10);canvas.setTextColor(accent,bg);canvas.setCursor(8,193);canvas.print(fitText(page==WIFI_LIST?scanNotice:notice,302));
   } else if(page==COMPOSE||page==CONFIRM){
-    canvas.setCursor(10,38);canvas.setTextColor(accent,bg);canvas.printf("%s  %s",page==CONFIRM?"전송 확인 / Send?":"키보드 입력",input.korean?"[한글]":"[EN]");
-    canvas.setTextColor(TFT_WHITE,bg);canvas.setCursor(10,56);String destination=remoteView["destination"]|"USB IME 진단";while(canvas.textWidth(destination.c_str())>300&&destination.length()){size_t i=destination.length()-1;while(i>0&&((uint8_t)destination[i]&0xc0)==0x80)--i;destination.remove(i);}canvas.print(destination);canvas.setTextWrap(true);canvas.setCursor(10,79);String text=input.text().c_str();
-    // Keep the recent tail visible while preserving the full bounded draft.
-    while(canvas.textWidth(text.c_str())>2400&&text.length()){size_t i=1;while(i<text.length()&&((uint8_t)text[i]&0xc0)==0x80)i++;text.remove(0,i);}canvas.print(text);canvas.setTextWrap(false);
-    canvas.setCursor(10,185);canvas.setTextColor(accent,bg);canvas.print(page==CONFIRM?"B / Enter: 실제 세션으로 전송":"Tab / B 길게: 한/영 변환");
-  } else if(page==WIFI_PASSWORD){canvas.setCursor(10,45);canvas.print(wifiEditing?"Wi-Fi 암호 / Password":"숨김 SSID / Network name");canvas.setCursor(10,74);canvas.print(wifiSsid);canvas.setCursor(10,108);canvas.setTextWrap(true);if(wifiEditing){if(passwordVisible)canvas.print(wifiPassword);else for(size_t i=0;i<wifiPassword.length();i++)canvas.print('*');}canvas.setTextWrap(false);canvas.setCursor(10,164);canvas.setTextColor(accent,bg);canvas.print(wifiEditing?(passwordVisible?"Tab / B 길게: 숨기기 / Hide":"Tab / B 길게: 보이기 / Show"):"SSID 입력 후 Enter / B");canvas.setCursor(10,185);canvas.setTextColor(TFT_WHITE,bg);canvas.print("Enter / B: 연결   C: 취소");}
-  else if(page==READ_REPLY){canvas.setTextWrap(true);canvas.setCursor(10,40);String text=remoteView["message"]|"응답 없음";size_t start=min((size_t)readerOffset*90,text.length());while(start<text.length()&&((uint8_t)text[start]&0xc0)==0x80)start++;canvas.print(text.substring(start,start+550));canvas.setTextWrap(false);}
-  else if(page==INFO){canvas.setCursor(10,42);canvas.printf("%s\nESP32 / %u MB Flash\nFACES I2C 0x08: %s\nWi-Fi: %s\nIP: %s\nPairing: %s\n첫 버전: 영문 / 한글 두벌식",deviceId.c_str(),ESP.getFlashChipSize()/1048576,faces?"FOUND":"ABSENT",WiFi.status()==WL_CONNECTED?"CONNECTED":"OFFLINE",WiFi.localIP().toString().c_str(),pairKey.length()==64?"USB ENROLLED":"REQUIRED");}
-  canvas.fillRect(0,207,320,33,card);canvas.setTextColor(TFT_WHITE,card);canvas.setCursor(7,210);String clipped=page==WIFI_LIST?scanNotice:notice;while(canvas.textWidth(clipped.c_str())>308&&clipped.length()){size_t i=clipped.length()-1;while(i>0&&((uint8_t)clipped[i]&0xc0)==0x80)--i;clipped.remove(i);}canvas.print(clipped);
-  canvas.setTextColor(accent,card);canvas.setCursor(12,227);canvas.print(page==COMPOSE?"A:삭제    B:전송    C:뒤로":page==WIFI_PASSWORD?"A:삭제    B:연결    C:뒤로":"A:이전    B:선택    C:다음  길게:뒤로");
-  canvas.pushSprite(0,0);dirty=false;
+    canvas.setTextColor(accent,bg);canvas.setCursor(10,35);canvas.print(page==COMPOSE?(input.korean?"입력 [한글]":"입력 [EN]"):"이 세션으로 전송할까요?");
+    canvas.setTextColor(TFT_WHITE,bg);canvas.setTextWrap(true);canvas.setCursor(10,55);String text=input.text().c_str();while(canvas.textWidth(text.c_str())>1100&&text.length()){size_t i=1;while(i<text.length()&&((uint8_t)text[i]&0xc0)==0x80)i++;text.remove(0,i);}canvas.print(text);canvas.setTextWrap(false);
+    const char* composeItems[]={"전송 검토 / Send","한/영 전환 / Language","입력 삭제 / Clear","내용으로 / Back"};
+    for(int i=0;i<(page==COMPOSE?4:2);i++){int y=page==COMPOSE?119+i*21:140+i*24;bool active=nav.focus==snowball::Focus::Content&&nav.index==i;canvas.fillRoundRect(7,y,306,20,3,active?accent:card);canvas.setTextColor(active?TFT_BLACK:TFT_WHITE,active?accent:card);canvas.setCursor(12,y+3);canvas.print(page==COMPOSE?composeItems[i]:i==0?"전송 / Send":"입력으로 / Back");}
+  } else if(page==WIFI_PASSWORD){
+    canvas.setCursor(10,35);canvas.print(fitText(wifiSsid,300));canvas.setCursor(10,55);canvas.print(wifiEditing?"암호 / Password":"SSID 입력 / Network name");canvas.setCursor(10,77);canvas.setTextWrap(true);if(wifiEditing){if(passwordVisible)canvas.print(wifiPassword);else for(size_t i=0;i<wifiPassword.length();i++)canvas.print('*');}canvas.setTextWrap(false);
+    for(int i=0;i<(wifiEditing?3:2);i++){int y=134+i*22;bool active=nav.focus==snowball::Focus::Content&&nav.index==i;canvas.fillRoundRect(7,y,306,21,3,active?accent:card);canvas.setTextColor(active?TFT_BLACK:TFT_WHITE,active?accent:card);canvas.setCursor(12,y+3);canvas.print(!wifiEditing?(i==0?"암호 입력으로 / Next":"취소 / Back"):i==0?"연결 / Connect":i==1?(passwordVisible?"암호 숨기기 / Hide":"암호 보이기 / Show"):"취소 / Back");}
+    canvas.setFont(&fonts::efontKR_10);canvas.setTextColor(accent,bg);canvas.setCursor(10,193);canvas.print("Tab: 표시/숨김   Backspace: 삭제");
+  } else if(page==INFO){canvas.setCursor(10,36);canvas.printf("%s\nESP32 / %u MB\nFACES: %s\nWi-Fi: %s\nIP: %s\n기기 등록: %s\n영문 / 한글 두벌식",deviceId.c_str(),ESP.getFlashChipSize()/1048576,faces?"FOUND":"ABSENT",WiFi.status()==WL_CONNECTED?"CONNECTED":"OFFLINE",WiFi.localIP().toString().c_str(),pairKey.length()==64?"등록됨":"필요");}
+  footer();canvas.pushSprite(0,0);dirty=false;
 }
 void setup(){
   auto config=M5.config();config.internal_mic=false;config.internal_spk=true;M5.begin(config);Serial.begin(115200);M5.Display.setRotation(1);M5.Display.setBrightness(160);M5.Speaker.setVolume(64);
@@ -326,12 +453,8 @@ void setup(){
 void loop(){
   M5.update();
   if(M5.BtnA.pressedFor(2500)&&M5.BtnB.pressedFor(2500)&&M5.BtnC.pressedFor(2500)){prefs.remove("pair");pairKey="";hostEpoch="";notice="기기 등록 초기화. USB로 재등록";dirty=true;delay(500);}
-  if(M5.BtnA.wasHold()){if(page==COMPOSE)back();else back();}
-  if(M5.BtnB.wasHold()){if(page==COMPOSE){input.toggle();notice=input.korean?"한글 두벌식":"English";dirty=true;}else if(page==WIFI_PASSWORD){if(wifiEditing){passwordVisible=!passwordVisible;dirty=true;}}else back();}
-  if(M5.BtnC.wasHold()){if(page==COMPOSE){input.clear();draftSession=remoteView["sessionKey"].as<String>();notice="입력 삭제됨";dirty=true;}else back();}
-  if(M5.BtnA.wasClicked()){if(page==COMPOSE){input.backspace();dirty=true;}else if(page==WIFI_PASSWORD)keyboard(8);else if(page==CONFIRM){page=COMPOSE;dirty=true;}else move(-1);}
-  if(M5.BtnB.wasClicked())select();
-  if(M5.BtnC.wasClicked()){if(page==COMPOSE||page==CONFIRM||page==INFO||page==WIFI_PASSWORD)back();else move(1);}
+  uint32_t now=millis();bool pressed[]={M5.BtnA.isPressed(),M5.BtnB.isPressed(),M5.BtnC.isPressed()};
+  for(int b=0;b<3;b++)buttonAction(b,gestures[b].update(now,pressed[b]));
   if(faces&&digitalRead(5)==LOW){Wire.requestFrom(0x08,1);if(Wire.available()){uint8_t c=Wire.read();if(c&&c!=0xff)keyboard(c);}}
   while(Serial.available()){char c=Serial.read();if(c=='\n'){handleSerial(serialLine);serialLine="";}else if(c!='\r'){if(serialLine.length()<24576)serialLine+=c;else serialLine="";}}
   updateScan();
@@ -342,5 +465,9 @@ void loop(){
   if(pending&&millis()-lastPoll>7000){pending=false;pendingSend=false;notice="응답 불명확. 상태 조회로 확인";dirty=true;}
   if(!pending&&!scanRunning&&millis()-lastPoll>3500&&(usbOnline()||(!hostEpoch.isEmpty()&&WiFi.status()==WL_CONNECTED))&&page!=WIFI_LIST&&page!=WIFI_PASSWORD&&page!=CONFIRM)request("poll");
   if(!usbOnline()&&!wifiUi()&&WiFi.status()==WL_CONNECTED&&hostEpoch.isEmpty()&&millis()-lastDiscovery>8000)discoverHost();
+  if(!pending&&!wifiUi()&&millis()-nextContentFetch>120){
+    if(page==SESSION_CONTENT&&nav.index!=(remoteView["contentOffset"]|0)){nextContentFetch=millis();request("read",nav.index);}
+    else if(page==REMOTE_LIST&&!listInitial&&String(remoteView["menuKind"]|"")==expectedMenu){int offset=remoteView["menuOffset"]|0;if(nav.start()!=offset){nextContentFetch=millis();request("browse",nav.index);}}
+  }
   if(dirty)draw();delay(5);
 }

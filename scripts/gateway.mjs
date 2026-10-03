@@ -8,7 +8,8 @@ import {spawn} from 'node:child_process';
 import {randomBytes} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
 import readline from 'node:readline';
-import {ReplayGuard,sign,material,privateIp,flattenSessions,validateAction,MAX_FRAME} from '../src/protocol.mjs';
+import {DeviceNavigation} from '../src/navigation.mjs';
+import {ReplayGuard,sign,material,privateIp,MAX_FRAME} from '../src/protocol.mjs';
 
 const root=fileURLToPath(new URL('..',import.meta.url));
 const args=process.argv.slice(2),options={bind:'127.0.0.1',port:47771,backend:'http://127.0.0.1:8765',python:process.env.SNOWBALL_M5_PYTHON??'python'};
@@ -30,88 +31,17 @@ let deviceId=null,deviceAddress=null;try{const saved=JSON.parse(fs.readFileSync(
 if(options.device)deviceAddress=options.device;
 if(deviceAddress&&(!privateIp(deviceAddress)||deviceAddress.startsWith('127.')))throw Error('private_device_address_required');
 if(options.device&&deviceId)fs.writeFileSync(path.join(directory,'device.json'),JSON.stringify({deviceId,ip:deviceAddress})+'\n',{mode:0o600});
-let serial,lastSeen=0,usbSeen=0,selection=null,model=null,effort=null,menu=[],menuKind='',menuOffset=0,lastCommand=null,skin='slate-dark',busy=false,override=null,snapshotCache=null,catalogPending=false,catalogGeneration=0;
-let view={title:'Snowball',message:'Middleware unavailable',items:[],connected:false};
+let serial,lastSeen=0,usbSeen=0,busy=false;
+let view={message:'Middleware unavailable',items:[],connected:false};
 async function api(route,body) {
   const res=await fetch(options.backend+route,{method:body===undefined?'GET':'POST',headers:{Origin:options.backend,'Content-Type':'application/json','x-snowball-controller':'ctl_'+sign(key,'controller').slice(0,16)},...(body===undefined?{}:{body:JSON.stringify(body)}),signal:AbortSignal.timeout(route==='/v1/harness/models'?20000:4000)});
   const data=await res.json();if(!res.ok)throw Error(data.error??`middleware_http_${res.status}`);return data;
 }
 const shorten=(value,n=64)=>Array.from(String(value??'')).slice(0,n).join('');
-async function state() {
-  const s=await api('/v1/snapshot');
-  if(s.accessMode!=='local-no-auth')throw Error('middleware_token_mode_not_supported');
-  snapshotCache=s;return s;
-}
-function sessionView(s) {
-  const current=selection && flattenSessions(s).find(it=>it.sessionKey===selection.sessionKey);
-  if(selection&&!current)throw Error('selected_session_disappeared');
-  if(current)selection=current;
-  const commands=s.commands??[];
-  const command=lastCommand?commands.find(c=>c.commandId===lastCommand):null;
-  return {title:'Snowball',connected:true,sessionKey:current?.sessionKey??'',session:shorten(current?.title??current?.label??'Select a session',42),destination:shorten(current?.label??current?.title??'Select a session',90),model:shorten(model??current?.model??'Native default',32),effort:shorten(effort??current?.effort??'Native default',24),commandStatus:command?.status??(lastCommand?'unconfirmed':'idle'),message:override??(command?`Command: ${command.status}`:'Ready'),items:menu.map(it=>shorten(it.label,60)),menuKind,skinId:skin,skinName:skin==='slate-dark'?'Slate Dark':'High Contrast'};
-}
-async function listSessions(offset=0) {
-  ++catalogGeneration;catalogPending=false;
-  const s=await state(),all=flattenSessions(s);menuKind='sessions';menuOffset=offset;
-  menu=all.slice(offset,offset+12).map(target=>({label:target.label,target}));
-  if(offset+12<all.length)menu.push({label:'Next page >',page:offset+12});
-  if(offset>0)menu.push({label:'< Previous page',page:Math.max(0,offset-12)});
-  override=all.length?`${offset+1}-${Math.min(offset+12,all.length)} / ${all.length} sessions`:'No native sessions discovered';
-  return sessionView(s);
-}
-async function action(raw) {
-  const a=validateAction(raw);
-  if(a.op==='sessions')return view=await listSessions(a.index??0);
-  if(a.op==='poll'||a.op==='status')return view=sessionView(catalogPending&&snapshotCache?snapshotCache:await state());
-  if(a.op==='skin'){skin=skin==='slate-dark'?'high-contrast':'slate-dark';return view=sessionView(await state());}
-  if(a.op==='select'){
-    const item=menu[a.index];if(!item)throw Error('selection_out_of_range');
-    ++catalogGeneration;catalogPending=false;
-    if(item.page!==undefined)return view=await listSessions(item.page);
-    if(menuKind==='sessions'){selection={...item.target};model=effort=null;lastCommand=null;}
-    else if(menuKind==='models'){model=item.target.model;effort=null;}
-    else if(menuKind==='efforts')effort=item.target;
-    menu=[];menuKind='';override=null;return view=sessionView(await state());
-  }
-  if(!selection)throw Error('select_session_first');
-  if(a.op==='models'||a.op==='efforts'){
-    if(catalogPending)return view;
-    const targetSession={...selection},targetModel=model??selection.model,generation=++catalogGeneration;
-    menuKind=a.op;menu=[];catalogPending=true;override='Discovering native capabilities...';
-    // Actual CLI discovery can take seconds. Keep physical navigation responsive
-    // while its result is pending; an empty loading menu is never a fake catalog.
-    void (async()=>{
-      try{
-        const response=await api('/v1/harness/models',{pluginId:targetSession.pluginId??targetSession.harness?.pluginId,instanceId:targetSession.harness?.instanceId??'default'});
-        if(generation!==catalogGeneration||selection?.sessionKey!==targetSession.sessionKey)return;
-        const models=response.models??[];
-        if(a.op==='models')menu=models.map(target=>({label:target.displayName??target.model,target}));
-        else {const selected=models.find(m=>m.model===targetModel);menu=(selected?.efforts??[]).map(target=>({label:typeof target==='string'?target:target.id,target:typeof target==='string'?target:target.id}));}
-        if(menu.length>32)menu=menu.slice(0,32);
-        override=menu.length?null:'No native capabilities reported';
-      }catch(error){if(generation===catalogGeneration)override=`Native discovery failed: ${error.message}`;}
-      finally{if(generation===catalogGeneration){catalogPending=false;if(snapshotCache)view=sessionView(snapshotCache);}}
-    })();
-    return view=sessionView(snapshotCache??await state());
-  }
-  if(a.op==='read'){
-    const s=await state();const turns=s.turnsStore?.[selection.sessionKey]??s.turnsStore?.[selection.id]??s.sessionMessages?.[selection.sessionKey]??[];
-    const reply=[...turns].reverse().find(t=>['agent','assistant'].includes(t.role));
-    override=shorten(reply?.agentResponse??reply?.text??reply?.content??'No response available',1800);return view=sessionView(s);
-  }
-  if(a.op==='send'){
-    const s=await state(),current=flattenSessions(s).find(it=>it.sessionKey===selection.sessionKey);
-    if(!current?.ownerId||current.readOnly===true)throw Error('session_not_controllable');
-    const commandId='cmd_m5_'+a.commandId;
-    // Repeated IDs reconcile through the journal; they never create a second turn.
-    if((s.commands??[]).some(c=>c.commandId===commandId)){lastCommand=commandId;return view=sessionView(s);}
-    const payload={text:a.text,...(model?{model}:{}),...(effort?{effort}:{})};
-    lastCommand=commandId;override=null;
-    try {await api('/v1/commands',{commandId,sessionKey:current.sessionKey,ownerId:current.ownerId,expectedRevision:current.revision,operation:'sessions.send',payload});}
-    catch(error){override=`Delivery unconfirmed: ${error.message}. Inspect status; do not resend.`;throw error;}
-    return view=sessionView(await state());
-  }
-}
+const navigationFile=path.join(directory,'navigation.json');let saved={};try{saved=JSON.parse(fs.readFileSync(navigationFile,'utf8'));}catch{}
+const controller=new DeviceNavigation({api,machineName:os.hostname(),saved,save:value=>fs.writeFileSync(navigationFile,JSON.stringify(value)+'\n',{mode:0o600})});
+const state=()=>controller.state();
+const action=async raw=>view=await controller.action(raw);
 function fault(error){view={...view,connected:false,message:shorten(error.message,120)};return view;}
 const sendSerial=obj=>{if(serial?.stdin.writable&&serial.stdin.writableLength<65536)serial.stdin.write(JSON.stringify(obj)+'\n');};
 if(options.serial){

@@ -8,11 +8,11 @@ Native ESP32 firmware and a Snowball Protocol 1 hardware plugin for the original
 
 Hardware reference photo: © M5Stack, from the [official FACES Kit documentation](https://docs.m5stack.com/en/core/Faces_Kit). The photo shows the manufacturer's product, rather than this firmware running on our board; this release uses the QWERTY panel.
 
-| Home / 홈 | English input / 영문 입력 | Korean input / 한글 입력 |
+| Settings / 설정 | English input / 영문 입력 | Korean input / 한글 입력 |
 | --- | --- | --- |
-| ![Actual M5Stack firmware home screen](assets/screenshots/home.png) | ![Actual M5Stack English input screen](assets/screenshots/english-input.png) | ![Actual M5Stack Korean input screen](assets/screenshots/korean-input.png) |
+| ![Actual M5Stack firmware settings screen](assets/screenshots/settings.png) | ![Actual M5Stack English input screen](assets/screenshots/english-input.png) | ![Actual M5Stack Korean input screen](assets/screenshots/korean-input.png) |
 
-These 320×240 images were captured from the real M5Stack firmware framebuffer on 2026-10-03. The home screen shows its observed Wi-Fi/middleware connection. The input captures show local English and Korean two-beolsik composition; **Tab or held B** switches languages. Their text was entered through the USB IME diagnostic, which sends no harness prompt. These captures verify device rendering, while physical keypresses and a completed native harness turn remain unverified.
+These 320×240 images were captured from the real M5Stack 0.2.0 framebuffer on 2026-10-03. Settings and English/Korean composition show the breadcrumb and universal ABC footer. Input text was entered through the USB IME diagnostic, which sends no harness prompt. **Tab or held B** switches languages. Native session transcripts are kept out of the screenshot gallery. These captures verify device rendering; physical keypresses and a completed native harness turn remain unverified.
 
 The system architecture and deployment verification are maintained only in [Snowball_Control/docs/ARCHITECTURE.md](https://github.com/fkiller/Snowball_Control/blob/main/docs/ARCHITECTURE.md).
 
@@ -45,14 +45,15 @@ USB provisions a random device enrollment key. The key stays in `.local/pairing.
 
 ## Keys
 
-| Screen | A | B | C | FACES |
-| --- | --- | --- | --- | --- |
-| Menus | Previous | Select | Next | WASD / arrows navigate; Enter selects |
-| Compose | Backspace | Review send | Back | Characters, including literal WASD; Enter reviews |
-| Send confirmation | Return to draft | Send to selected native session | Back | Enter sends |
-| Wi-Fi password | Backspace | Connect; hold to show/hide password | Back | ASCII SSID/password; Tab shows/hides; Backspace edits |
+| Button | Click | Hold / repeat | Double |
+| --- | --- | --- | --- |
+| A | ↑ / left | PgUp | Home |
+| B | Select / Compose | Context action shown in the footer | Context action shown in the footer |
+| C | ↓ / right | PgDn | End |
 
-Hold a button in a menu to return home. In Compose, hold **B** or press **Tab** to switch **EN ↔ 한글**; hold A to return home; hold C to clear the draft. Shifted Latin keys select doubled Korean consonants/vowels. Text is UTF-8 throughout. A failed/unconfirmed send is never automatically resent.
+Session content is the default screen. Home moves to its first line; another ↑ enters the session breadcrumb. B opens that harness's session list, centered on the current session. Home then ↑ returns to content with the session breadcrumb focused. Move left to select the harness, then the actual machine, then the menu icon for Settings. The machine crumb appears only when focus reaches it or the menu icon. Lists use the same paging/Home/End controls. Machine discovery currently exposes the one real host observed by this loopback gateway.
+
+In session content, B composes, held B opens model/effort/refresh actions, and double B follows the latest lines. In lists, held B returns and double B opens session content. In Compose, held B or Tab switches **EN ↔ 한글**, and double B returns. A/C move among Review send, Language, Clear and Back. Review shows a separate Send/Back confirmation; held or double B cancels it. WASD is navigation outside editors and literal text inside them; Backspace edits and Enter reviews/submits the selected confirmation. Shifted Latin keys select doubled Korean consonants/vowels. Text is UTF-8 throughout. A failed/unconfirmed send is never automatically resent.
 
 Wi-Fi settings scan 2.4GHz networks, accept passwords, connect and save only a successfully joined network, support hidden SSIDs, and offer explicit Forget. Hold all three buttons for 2.5 seconds to reset device enrollment; reconnect USB to enroll again.
 
@@ -72,6 +73,10 @@ python scripts/device_qa.py --port COM7 --output artifacts/korean.png --korean -
 python scripts/check-wifi.py --port COM7 --rounds 3 --require-aps
 # Explicit disposable local input QA; never connects or sends a harness prompt:
 python scripts/check-wifi.py --port COM7 --require-aps --exercise-input
+# Real firmware focus, native lists, paging and font-width checks; no prompt sent:
+python scripts/check-navigation.py --port COM7 --screens artifacts/navigation-screens
+# Optional disposable EN/KR draft captures; refuses an existing user draft:
+python scripts/check-navigation.py --port COM7 --screens artifacts/navigation-screens --input-screens
 ```
 
 The native IME test compiles the exact header used by firmware. `device_qa.py` reads the real firmware state and its on-device rendered framebuffer; it does not dispatch a harness command. Screenshot evidence does not establish that a person physically pressed the buttons or that Wi-Fi credentials were entered correctly.
