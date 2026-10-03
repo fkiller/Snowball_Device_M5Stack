@@ -8,6 +8,7 @@
 #include <mbedtls/md.h>
 #include <mbedtls/base64.h>
 #include "../firmware/hangul.h"
+#include "../firmware/submission.h"
 
 static M5Canvas canvas(&M5.Display);
 static Preferences prefs;
@@ -43,7 +44,7 @@ bool middlewareOnline(){return lastResponse&&millis()-lastResponse<10000&&remote
 void acceptView(JsonVariantConst view){
   remoteView.clear();remoteView.set(view);lastResponse=millis();pending=false;
   notice=String(remoteView["message"]|"");contrast=String(remoteView["skinId"]|"")=="high-contrast";
-  if(pendingSend){pendingSend=false;if(remoteView["connected"].as<bool>()&&String(remoteView["commandStatus"]|"unconfirmed")!="unconfirmed"){input.clear();draftSession="";}page=READ_REPLY;readerOffset=0;}
+  if(pendingSend){pendingSend=false;if(remoteView["connected"].as<bool>()&&snowball::journalAdmitted(remoteView["commandStatus"]|"unconfirmed")){input.clear();draftSession="";}page=READ_REPLY;readerOffset=0;}
   dirty=true;
 }
 void request(const char* op,int index=-1){

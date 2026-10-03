@@ -1,8 +1,11 @@
 #include "../firmware/hangul.h"
+#include "../firmware/submission.h"
 #include <cassert>
 #include <iostream>
 int main(){
   using namespace snowball;
+  for(const auto& state:{"idle","failed","cancelled","unknown","unconfirmed"})assert(!journalAdmitted(state));
+  for(const auto& state:{"queued","dispatched","acknowledged","completed"})assert(journalAdmitted(state));
   assert(compose("gksrmf")==u8"한글");
   assert(compose("dkssudgktpdy")==u8"안녕하세요");
   assert(compose("rhk")==u8"과");assert(compose("rnlf")==u8"귈");
