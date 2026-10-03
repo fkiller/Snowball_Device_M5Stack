@@ -50,11 +50,13 @@ USB provisions a random device enrollment key. The key stays in `.local/pairing.
 | Menus | Previous | Select | Next | WASD / arrows navigate; Enter selects |
 | Compose | Backspace | Review send | Back | Characters, including literal WASD; Enter reviews |
 | Send confirmation | Return to draft | Send to selected native session | Back | Enter sends |
-| Wi-Fi password | — | Connect | Back | ASCII SSID/password; Backspace edits |
+| Wi-Fi password | Backspace | Connect; hold to show/hide password | Back | ASCII SSID/password; Tab shows/hides; Backspace edits |
 
 Hold a button in a menu to return home. In Compose, hold **B** or press **Tab** to switch **EN ↔ 한글**; hold A to return home; hold C to clear the draft. Shifted Latin keys select doubled Korean consonants/vowels. Text is UTF-8 throughout. A failed/unconfirmed send is never automatically resent.
 
 Wi-Fi settings scan 2.4GHz networks, accept passwords, connect and save only a successfully joined network, support hidden SSIDs, and offer explicit Forget. Hold all three buttons for 2.5 seconds to reset device enrollment; reconnect USB to enroll again.
+
+AP scans run only when requested, with an explicit scanning/result/error status. Repeated Scan presses preserve the current scan, and the previous AP list remains visible until a new scan completes. Password entry pauses middleware polling and refuses USB scan requests that would change the screen. Passwords start hidden; **Tab or held B** shows/hides them. Diagnostic screenshots always mask passwords.
 
 ## Plugin and verification
 
@@ -66,6 +68,10 @@ powershell -File scripts/test-ime.ps1
 # Stop the gateway before opening the same serial port for diagnostics:
 python scripts/device_qa.py --port COM7 --output artifacts/home.png
 python scripts/device_qa.py --port COM7 --output artifacts/korean.png --korean --keys "dkssudgktpdy gksrmf"
+# Real radio scan, repeat-request and AP-list retention checks (no credentials printed):
+python scripts/check-wifi.py --port COM7 --rounds 3 --require-aps
+# Explicit disposable local input QA; never connects or sends a harness prompt:
+python scripts/check-wifi.py --port COM7 --require-aps --exercise-input
 ```
 
 The native IME test compiles the exact header used by firmware. `device_qa.py` reads the real firmware state and its on-device rendered framebuffer; it does not dispatch a harness command. Screenshot evidence does not establish that a person physically pressed the buttons or that Wi-Fi credentials were entered correctly.
