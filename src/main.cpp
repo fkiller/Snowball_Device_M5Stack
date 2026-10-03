@@ -51,7 +51,7 @@ enum Page { SESSION_CONTENT=0, HOME=0, READ_REPLY=0, REMOTE_LIST=1, COMPOSE=2, C
 static Page page=SESSION_CONTENT;
 static const char* settingsItems[]={"Wi-Fi 설정","미들웨어 검색","화면 테마","기기 정보"};
 static const char* actionItems[]={"키보드 입력 / Compose","모델 / Model","Effort","새로고침 / Refresh","내용으로 / Back"};
-void back();void draw();void select();void returnSession(bool top=false);void syncNavigation();
+void back();void draw();void select();void returnSession(bool top=false,bool refresh=true);void syncNavigation();
 bool wifiUi(){return page==WIFI_LIST||page==WIFI_PASSWORD||scanRunning;}
 
 String randomHex(size_t bytes){String s;for(size_t i=0;i<bytes;i++){uint8_t b=esp_random()&255;char h[3];snprintf(h,3,"%02x",b);s+=h;}return s;}
@@ -65,9 +65,9 @@ bool usbOnline(){return lastUsb&&millis()-lastUsb<6500;}
 bool middlewareOnline(){return lastResponse&&millis()-lastResponse<10000&&remoteView["connected"].as<bool>();}
 void acceptView(JsonVariantConst view){
   String previous=remoteView["sessionKey"]|"",acceptedOp=pendingOp;pendingOp="";
-  remoteView.clear();remoteView.set(view);lastResponse=millis();pending=false;
+  remoteView.clear();remoteView.set(view);lastPoll=lastResponse=millis();pending=false;
   notice=String(remoteView["message"]|"");contrast=String(remoteView["skinId"]|"")=="high-contrast";
-  if(pendingSend){pendingSend=false;if(remoteView["connected"].as<bool>()&&snowball::journalAdmitted(remoteView["commandStatus"]|"unconfirmed")){input.clear();draftSession="";}returnSession();}
+  if(pendingSend){pendingSend=false;if(remoteView["connected"].as<bool>()&&snowball::journalAdmitted(remoteView["commandStatus"]|"unconfirmed")){input.clear();draftSession="";}returnSession(false,false);}
   if(page==REMOTE_LIST){
     String kind=remoteView["menuKind"]|"";
     if(acceptedOp=="select"&&!kind.isEmpty()){expectedMenu=kind;listInitial=true;nav.returnCrumb=kind=="sessions"?3:kind=="harnesses"?2:1;}
@@ -221,10 +221,10 @@ void syncNavigation(){
   else nav.configure(8,11,true);
   cursor=nav.index;
 }
-void returnSession(bool top){
+void returnSession(bool top,bool refresh){
   if(scanRunning)cancelScan();resumeWifi();page=SESSION_CONTENT;
   nav.index=readerOffset;nav.focus=top?snowball::Focus::Top:snowball::Focus::Content;syncNavigation();
-  expectedMenu="";listInitial=false;request("read",nav.index);dirty=true;
+  expectedMenu="";listInitial=false;if(refresh)request("read",nav.index);dirty=true;
 }
 void openRemote(const char* kind,int origin){
   if(pending){notice="응답 대기 중";dirty=true;return;}
@@ -409,7 +409,9 @@ void draw(){
     JsonArrayConst lines=remoteView["contentLines"].as<JsonArrayConst>();int offset=remoteView["contentOffset"]|0;
     if(lines.size()==0){canvas.setCursor(10,43);canvas.print(String(remoteView["sessionKey"]|"").isEmpty()?"상단에서 세션을 선택하세요":"네이티브 세션 내용 없음");}
     else for(int row=0;row<11&&row<(int)lines.size();row++){String label=lines[row].as<String>();layoutOk=layoutOk&&canvas.textWidth(label.c_str())<=300;canvas.setCursor(10,35+row*14);canvas.print(fitText(label,300));}
-    canvas.setFont(&fonts::efontKR_10);canvas.setTextColor(accent,bg);canvas.setCursor(8,194);String status=String(remoteView["readOnly"]|true)?"읽기 전용":"제어 가능";status+="  "+String(nav.index+1)+"/"+String(remoteView["contentTotal"]|0)+"  "+String(remoteView["model"]|"");canvas.print(fitText(status,304));
+    canvas.setFont(&fonts::efontKR_10);canvas.setTextColor(accent,bg);canvas.setCursor(8,194);String status=String(remoteView["readOnly"]|true)?"읽기 전용":"제어 가능";status+="  "+String(nav.index+1)+"/"+String(remoteView["contentTotal"]|0)+"  "+String(remoteView["model"]|"");
+    if(!remoteView["connected"].as<bool>()||String(remoteView["commandStatus"]|"idle")!="idle")status=remoteView["message"]|"미들웨어 미연결 / Offline";
+    canvas.print(fitText(status,304));
     if(offset!=nav.index){canvas.fillCircle(314,197,2,TFT_ORANGE);}
   } else if(page==REMOTE_LIST||page==SETTINGS||page==ACTIONS||page==WIFI_LIST){
     int start=nav.start(),total=nav.total,offset=remoteView["menuOffset"]|0;
@@ -430,7 +432,7 @@ void draw(){
     for(int i=0;i<(page==COMPOSE?4:2);i++){int y=page==COMPOSE?119+i*21:140+i*24;bool active=nav.focus==snowball::Focus::Content&&nav.index==i;canvas.fillRoundRect(7,y,306,20,3,active?accent:card);canvas.setTextColor(active?TFT_BLACK:TFT_WHITE,active?accent:card);canvas.setCursor(12,y+3);canvas.print(page==COMPOSE?composeItems[i]:i==0?"전송 / Send":"입력으로 / Back");}
   } else if(page==WIFI_PASSWORD){
     canvas.setCursor(10,35);canvas.print(fitText(wifiSsid,300));canvas.setCursor(10,55);canvas.print(wifiEditing?"암호 / Password":"SSID 입력 / Network name");canvas.setCursor(10,77);canvas.setTextWrap(true);if(wifiEditing){if(passwordVisible)canvas.print(wifiPassword);else for(size_t i=0;i<wifiPassword.length();i++)canvas.print('*');}canvas.setTextWrap(false);
-    for(int i=0;i<(wifiEditing?3:2);i++){int y=134+i*22;bool active=nav.focus==snowball::Focus::Content&&nav.index==i;canvas.fillRoundRect(7,y,306,21,3,active?accent:card);canvas.setTextColor(active?TFT_BLACK:TFT_WHITE,active?accent:card);canvas.setCursor(12,y+3);canvas.print(!wifiEditing?(i==0?"암호 입력으로 / Next":"취소 / Back"):i==0?"연결 / Connect":i==1?(passwordVisible?"암호 숨기기 / Hide":"암호 보이기 / Show"):"취소 / Back");}
+    for(int i=0;i<(wifiEditing?3:2);i++){int y=126+i*21;bool active=nav.focus==snowball::Focus::Content&&nav.index==i;canvas.fillRoundRect(7,y,306,20,3,active?accent:card);canvas.setTextColor(active?TFT_BLACK:TFT_WHITE,active?accent:card);canvas.setCursor(12,y+3);canvas.print(!wifiEditing?(i==0?"암호 입력으로 / Next":"취소 / Back"):i==0?"연결 / Connect":i==1?(passwordVisible?"암호 숨기기 / Hide":"암호 보이기 / Show"):"취소 / Back");}
     canvas.setFont(&fonts::efontKR_10);canvas.setTextColor(accent,bg);canvas.setCursor(10,193);canvas.print("Tab: 표시/숨김   Backspace: 삭제");
   } else if(page==INFO){canvas.setCursor(10,36);canvas.printf("%s\nESP32 / %u MB\nFACES: %s\nWi-Fi: %s\nIP: %s\n기기 등록: %s\n영문 / 한글 두벌식",deviceId.c_str(),ESP.getFlashChipSize()/1048576,faces?"FOUND":"ABSENT",WiFi.status()==WL_CONNECTED?"CONNECTED":"OFFLINE",WiFi.localIP().toString().c_str(),pairKey.length()==64?"등록됨":"필요");}
   footer();canvas.pushSprite(0,0);dirty=false;
