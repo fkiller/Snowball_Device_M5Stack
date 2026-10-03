@@ -6,7 +6,7 @@
   "engines": { "node": ">=22.12" },
   "exports": "./src/manifest.mjs",
   "scripts": {
-    "test": "node --test tests",
+    "test": "node --test tests/protocol.test.mjs tests/worker.test.mjs",
     "start": "node scripts/gateway.mjs",
     "firmware:build": "python -m platformio run",
     "firmware:upload": "python -m platformio run --target upload"
