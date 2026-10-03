@@ -2,6 +2,18 @@
 
 Native ESP32 firmware and a Snowball Protocol 1 hardware plugin for the original M5Stack Core / Gray and FACES QWERTY panel. The first release accepts English and Korean two-beolsik keyboard input; it does not capture audio or use a PC microphone.
 
+## Device and running firmware
+
+<a href="https://docs.m5stack.com/en/core/Faces_Kit"><img src="https://static-cdn.m5stack.com/resource/docs/products/core/face_kit/face_kit_01.webp" alt="M5Stack Core with the FACES QWERTY keyboard, shown alongside the other FACES panels" width="420"></a>
+
+Hardware reference photo: © M5Stack, from the [official FACES Kit documentation](https://docs.m5stack.com/en/core/Faces_Kit). The photo shows the manufacturer's product, rather than this firmware running on our board; this release uses the QWERTY panel.
+
+| Home / 홈 | English input / 영문 입력 | Korean input / 한글 입력 |
+| --- | --- | --- |
+| ![Actual M5Stack firmware home screen](assets/screenshots/home.png) | ![Actual M5Stack English input screen](assets/screenshots/english-input.png) | ![Actual M5Stack Korean input screen](assets/screenshots/korean-input.png) |
+
+These 320×240 images were captured from the real M5Stack firmware framebuffer on 2026-10-03. The home screen shows its observed Wi-Fi/middleware connection. The input captures show local English and Korean two-beolsik composition; **Tab or held B** switches languages. Their text was entered through the USB IME diagnostic, which sends no harness prompt. These captures verify device rendering, while physical keypresses and a completed native harness turn remain unverified.
+
 The system architecture and deployment verification are maintained only in [Snowball_Control/docs/ARCHITECTURE.md](https://github.com/fkiller/Snowball_Control/blob/main/docs/ARCHITECTURE.md).
 
 ## Build and upload
