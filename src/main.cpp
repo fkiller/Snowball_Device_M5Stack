@@ -289,7 +289,12 @@ void move(int delta,bool paging=false){
 }
 void buttonAction(int button,snowball::Gesture event){
   using snowball::Gesture;if(event==Gesture::None)return;
-  if(page==COMPOSE&&button!=1){if(event==Gesture::Double)input.edge(button==2);else input.move(button==0?-1:1);dirty=true;return;}
+  if(page==COMPOSE&&button!=1){
+    if(event==Gesture::Double)input.edge(button==2);
+    else if(button==0&&input.caret()==0){returnSession(false,false);return;}
+    else input.move(button==0?-1:1);
+    dirty=true;return;
+  }
   if(button!=1){if(event==Gesture::Double){nav.edge(button==2);cursor=nav.index;if(page==SESSION_CONTENT){readerOffset=nav.index;followTail=false;}dirty=true;}
     else move(button==0?-1:1,event==Gesture::Hold||event==Gesture::Repeat);return;}
   if(event==Gesture::Click)select();
@@ -308,7 +313,7 @@ void keyboard(uint8_t c){
   if(page==SESSION_CONTENT&&nav.focus==snowball::Focus::Content&&c!=27){beginCompose();if(page==COMPOSE&&c!=13&&c!=10)keyboard(c);return;}
   if(page==COMPOSE&&nav.focus==snowball::Focus::Content){
     if(!commandId.length()&&!pendingSend)editorNotice="";
-    if(c==9)toggleInputLanguage();else if(c==0xb4||c==0xb5)input.move(-1);else if(c==0xb6||c==0xb7)input.move(1);
+    if(c==9)toggleInputLanguage();else if(c==0xb4||c==0xb5){if(input.caret()==0)returnSession(false,false);else input.move(-1);}else if(c==0xb6||c==0xb7)input.move(1);
     else if(c==1)input.edge(false);else if(c==5)input.edge(true);
     else if(c==27)back();else if(c==13||c==10)select();
     else if(c==21&&!pendingSend){input.clear();commandId="";draftSession=remoteView["sessionKey"].as<String>();}
@@ -323,17 +328,26 @@ void keyboard(uint8_t c){
   else if(c=='s'||c=='S'||c=='d'||c=='D'||c==0xb6||c==0xb7)move(1);
   else if(c==13||c==10||c==' ')select();else if(c==27||c==8)back();
 }
-void screenshot(){
+void screenshot(bool raw=false){
   if(dirty)draw();
   // Diagnostic capture never exports a user password, even while shown on LCD.
   bool restorePassword=passwordVisible&&page==WIFI_PASSWORD;if(restorePassword){passwordVisible=false;draw();}
-  StaticJsonDocument<160>d;d["type"]="screen_begin";d["width"]=320;d["height"]=240;d["format"]="rgb888";serialJson(d);
+  raw=raw&&canvas.getColorDepth()==8;
+  StaticJsonDocument<160>d;d["type"]="screen_begin";d["width"]=320;d["height"]=240;d["format"]=raw?"rgb332":"rgb888";serialJson(d);
   static uint8_t row[960],encoded[1281];DynamicJsonDocument line(1600);
-  for(int y=0;y<240;y++){canvas.readRectRGB(0,y,320,1,row);size_t n=0;mbedtls_base64_encode(encoded,sizeof(encoded),&n,row,sizeof(row));encoded[n]=0;line.clear();line["type"]="screen_row";line["y"]=y;line["data"]=(const char*)encoded;serialJson(line);delay(1);}
+  for(int y=0;y<240;y++){
+    if(raw)memcpy(row,(const uint8_t*)canvas.getBuffer()+y*320,320);else canvas.readRectRGB(0,y,320,1,row);
+    size_t n=0;mbedtls_base64_encode(encoded,sizeof(encoded),&n,row,raw?320:sizeof(row));encoded[n]=0;
+    line.clear();line["type"]="screen_row";line["y"]=y;line["data"]=(const char*)encoded;serialJson(line);delay(1);
+  }
   StaticJsonDocument<64>end;end["type"]="screen_end";serialJson(end);
   if(restorePassword){passwordVisible=true;dirty=true;}
 }
-void handleSerial(const String&raw){DynamicJsonDocument d(24576);if(deserializeJson(d,raw))return;String type=d["type"]|"";
+void handleSerial(const String&raw){
+  // Small diagnostic commands must not reserve the full signed-view budget.
+  // The 8-bit framebuffer and live network view also occupy ESP32 heap.
+  size_t capacity=raw.length()*2+1024;if(capacity>24576)capacity=24576;
+  DynamicJsonDocument d(capacity);if(deserializeJson(d,raw))return;String type=d["type"]|"";
   if(type=="probe"){hello();return;}
   if(type=="enroll"){
     String key=d["key"].as<String>(),epoch=d["epoch"].as<String>();if(!hex(key,64)||!hex(epoch,32))return;
@@ -343,7 +357,7 @@ void handleSerial(const String&raw){DynamicJsonDocument d(24576);if(deserializeJ
   }
   if(type=="response"&&pending&&!pendingReverse&&d["id"].as<uint32_t>()==pendingId){lastUsb=millis();acceptView(d["view"]);return;}
   if(type=="render"){notice=d["text"].as<String>();dirty=true;return;}
-  if(type=="screenshot"){screenshot();return;}
+  if(type=="screenshot"){screenshot(d["raw"]|false);return;}
   if(type=="wifi-scan"){
     if(page==WIFI_PASSWORD||page==CONFIRM){StaticJsonDocument<160> r;r["type"]="wifi-networks";r["ok"]=false;r["code"]="editing";r.createNestedArray("networks");serialJson(r);return;}
     scanWifi();return;
@@ -380,7 +394,9 @@ void handleSerial(const String&raw){DynamicJsonDocument d(24576);if(deserializeJ
     return;
   }
   if(type=="inspect"){
-    DynamicJsonDocument result(16384);result["type"]="inspection";result["deviceId"]=deviceId;result["faces"]=faces;result["wifi"]=WiFi.status()==WL_CONNECTED;result["ip"]=WiFi.localIP().toString();result["paired"]=pairKey.length()==64;result["reverse"]=reverseReady&&reverseClient.connected();result["page"]=(int)page;result["korean"]=input.korean;result["draft"]=input.text().c_str();result["heap"]=ESP.getFreeHeap();result["view"]=remoteView;
+    DynamicJsonDocument result(remoteView.memoryUsage()+4096);
+    if(!result.capacity()){StaticJsonDocument<160> error;error["type"]="inspection-error";error["code"]="allocation_failed";error["heap"]=ESP.getFreeHeap();error["maxBlock"]=ESP.getMaxAllocHeap();serialJson(error);return;}
+    result["type"]="inspection";result["deviceId"]=deviceId;result["faces"]=faces;result["wifi"]=WiFi.status()==WL_CONNECTED;result["ip"]=WiFi.localIP().toString();result["paired"]=pairKey.length()==64;result["reverse"]=reverseReady&&reverseClient.connected();result["page"]=(int)page;result["korean"]=input.korean;result["draft"]=input.text().c_str();result["heap"]=ESP.getFreeHeap();result["maxBlock"]=ESP.getMaxAllocHeap();result["view"]=remoteView;
     result["scanRunning"]=scanRunning;result["scanCount"]=scanCount;result["scanTotal"]=scanTotal;result["scanCode"]=scanLastCode;result["scanAttempts"]=scanAttempts;result["scanMessage"]=scanNotice;result["scanDurationMs"]=scanDuration;
     result["wifiStatus"]=(int)WiFi.status();result["wifiConnecting"]=wifiStarted!=0;result["pending"]=pending;
     result["focus"]=nav.focus==snowball::Focus::Top?"top":"content";result["crumb"]=nav.crumb;result["cursor"]=nav.index;result["editCaret"]=(uint32_t)input.caret();result["viewportStart"]=nav.start();result["layoutOk"]=layoutOk;
@@ -417,7 +433,11 @@ void symbol(int x,int y,Symbol kind,uint16_t ink){
 bool harnessGlyph(int x,int y,JsonVariantConst icon,uint16_t ink){
   JsonArrayConst rows=icon["rows"].as<JsonArrayConst>();if((icon["size"]|0)!=16||rows.size()!=16)return false;
   for(auto row:rows)if(!row.is<int>()||row.as<int>()<0||row.as<int>()>65535)return false;
-  for(int iy=0;iy<16;iy++){uint16_t bits=rows[iy].as<uint16_t>();for(int ix=0;ix<16;ix++)if(bits&(0x8000>>ix))canvas.drawPixel(x+ix,y+iy,ink);}return true;
+  const char* packed=icon["rgb565"]|"";static uint8_t pixels[512];size_t bytes=0;
+  bool color=strlen(packed)==684&&mbedtls_base64_decode(pixels,sizeof(pixels),&bytes,(const uint8_t*)packed,684)==0&&bytes==sizeof(pixels);
+  for(int iy=0;iy<16;iy++){uint16_t bits=rows[iy].as<uint16_t>();for(int ix=0;ix<16;ix++)if(bits&(0x8000>>ix)){
+    int offset=2*(iy*16+ix);canvas.drawPixel(x+ix,y+iy,color?(uint16_t)((pixels[offset]<<8)|pixels[offset+1]):ink);
+  }}return true;
 }
 void footer(){
   const uint16_t card=contrast?TFT_BLACK:0x18e7,accent=contrast?TFT_YELLOW:0x07bf;
@@ -445,7 +465,8 @@ void footer(){
 void draw(){
   syncNavigation();layoutOk=true;
   const uint16_t bg=contrast?TFT_BLACK:0x0843,card=contrast?TFT_BLACK:0x18e7,accent=contrast?TFT_YELLOW:0x07bf;
-  canvas.fillScreen(bg);canvas.setTextWrap(false);canvas.setFont(&fonts::efontKR_14);
+  canvas.setClipRect(0,0,320,240);canvas.fillScreen(bg);canvas.setTextWrap(false);canvas.setFont(&fonts::efontKR_14);
+  canvas.setClipRect(0,0,320,30);
   canvas.fillRect(0,0,320,29,card);canvas.drawFastHLine(0,29,320,accent);
   bool top=nav.focus==snowball::Focus::Top;
   if(top&&nav.crumb==0)canvas.fillRoundRect(1,2,26,25,3,accent);
@@ -461,11 +482,12 @@ void draw(){
     }
     String label=crumb==1?String(remoteView["machine"]|"Machine"):crumb==2?String(remoteView["harnessName"]|"Harness"):crumb==3?String(remoteView["project"]|""):String(remoteView["session"]|"...");
     int budget=crumb==1?84:crumb==2?110:crumb==3?(top&&nav.crumb<=1?66:focused?112:96):315-x;
-    if(crumb==3){label="["+fitText(label,budget-18)+"]";}else label=fitText(label,budget-4);
+    label=fitText(label,budget-4);
     int width=min(budget,canvas.textWidth(label.c_str())+4);
     canvas.fillRoundRect(x-2,3,width+3,23,3,focused?accent:card);canvas.setTextColor(focused?TFT_BLACK:TFT_WHITE,focused?accent:card);canvas.setCursor(x,7);canvas.print(label);x+=width+3;
     layoutOk=layoutOk&&x<=320;
   }
+  canvas.setClipRect(0,30,320,snowball::BottomY-30);
   canvas.setTextColor(TFT_WHITE,bg);canvas.setFont(&fonts::efontKR_14);
   if(page==SESSION_CONTENT){
     if(nav.focus==snowball::Focus::Content)canvas.drawFastVLine(2,35,153,accent);
@@ -507,7 +529,8 @@ void draw(){
     for(int i=0;i<(wifiEditing?3:2);i++){int y=126+i*21;bool active=nav.focus==snowball::Focus::Content&&nav.index==i;canvas.fillRoundRect(7,y,306,20,3,active?accent:card);canvas.setTextColor(active?TFT_BLACK:TFT_WHITE,active?accent:card);canvas.setCursor(12,y+3);canvas.print(!wifiEditing?(i==0?"암호 입력으로 / Next":"취소 / Back"):i==0?"연결 / Connect":i==1?(passwordVisible?"암호 숨기기 / Hide":"암호 보이기 / Show"):"취소 / Back");}
     canvas.setFont(&fonts::efontKR_10);canvas.setTextColor(accent,bg);canvas.setCursor(10,193);canvas.print("Tab: 표시/숨김   Backspace: 삭제");
   } else if(page==INFO){canvas.setCursor(10,36);canvas.printf("%s\nESP32 / %u MB\nFACES: %s\nWi-Fi: %s\nIP: %s\n기기 등록: %s\n영문 / 한글 두벌식",deviceId.c_str(),ESP.getFlashChipSize()/1048576,faces?"FOUND":"ABSENT",WiFi.status()==WL_CONNECTED?"CONNECTED":"OFFLINE",WiFi.localIP().toString().c_str(),pairKey.length()==64?"등록됨":"필요");}
-  footer();canvas.pushSprite(0,0);dirty=false;
+  canvas.setClipRect(0,snowball::BottomY,320,snowball::BottomHeight);footer();
+  canvas.setClipRect(0,0,320,240);canvas.pushSprite(0,0);dirty=false;
 }
 void setup(){
   auto config=M5.config();config.internal_mic=false;config.internal_spk=true;M5.begin(config);Serial.begin(115200);M5.Display.setRotation(1);M5.Display.setBrightness(160);M5.Speaker.setVolume(64);

@@ -12,7 +12,11 @@ Hardware reference photo: © M5Stack, from the [official FACES Kit documentation
 | --- | --- | --- |
 | ![Actual M5Stack firmware settings screen](assets/screenshots/settings.png) | ![Actual M5Stack English input screen](assets/screenshots/english-input.png) | ![Actual M5Stack Korean input screen](assets/screenshots/korean-input.png) |
 
-These 320×240 images were captured from the real M5Stack 0.2.2 framebuffer on 2026-10-04. The breadcrumb shows the harness's plugin icon, [project], and session; focusing a harness reveals its full name. The single-row footer draws tap, hold, and double-click gestures beside action symbols. Input text was entered through the USB IME diagnostic, which sends no harness prompt. **Tab or held B** switches languages. Native session transcripts are kept out of the screenshot gallery. These captures verify device rendering; physical keypresses and a completed native harness turn remain unverified.
+These 320×240 images were captured from the real M5Stack 0.2.2 framebuffer on 2026-10-04. The breadcrumb shows the harness's plugin original color icon, project name without brackets, and session; focusing a harness reveals its full name. The single-row footer draws tap, hold, and double-click gestures beside action symbols. Input text was entered through the USB IME diagnostic, which sends no harness prompt. **Tab or held B** switches languages. Native session transcripts are kept out of the screenshot gallery. These captures verify device rendering; physical keypresses and a completed native harness turn remain unverified.
+
+![Actual native color harness icons on the M5Stack](assets/screenshots/harness-list.png)
+
+The plugin icons are reduced from the original Codex app icon in the installed official OpenAI extension, [Google Antigravity press asset](https://antigravity.google/press), and [OpenCode favicon](https://github.com/anomalyco/opencode/blob/dev/packages/ui/src/assets/favicon/favicon-96x96-v3.png). Lanczos scaling and dithering for the device's 8-bit RGB332 canvas (packed as RGB565) retain their colors and shapes at 16×16; each plugin owns its packed pixels and transparency mask.
 
 The system architecture and deployment verification are maintained only in [Snowball_Control/docs/ARCHITECTURE.md](https://github.com/fkiller/Snowball_Control/blob/main/docs/ARCHITECTURE.md).
 
@@ -53,7 +57,7 @@ USB provisions a random device enrollment key. The key stays in `.local/pairing.
 | B | Select / Compose | Context action shown in the footer | Context action shown in the footer |
 | C | ↓ / right | PgDn | End |
 
-Session content is the default screen. Home moves to its first line; another ↑ enters the session breadcrumb. B opens the current project's session list, centered on the current session. Home then ↑ returns to content with the session breadcrumb focused. Move left through **session → [project] → harness → machine → menu**. Selecting project or harness opens its real source list; the menu opens Settings. The machine crumb appears only when focus reaches it or the menu icon. Lists use the same paging/Home/End controls. Machine discovery currently exposes the one real host observed by this loopback gateway.
+Session content is the default screen. Home moves to its first line; another ↑ enters the session breadcrumb. B opens the current project's session list, centered on the current session. Home then ↑ returns to content with the session breadcrumb focused. Move left through **session → project → harness → machine → menu**. Selecting project or harness opens its real source list; the menu opens Settings. The machine crumb appears only when focus reaches it or the menu icon. Lists use the same paging/Home/End controls. Machine discovery currently exposes the one real host observed by this loopback gateway.
 
 In session content, B opens Prompt Edit, held B opens model/effort/refresh actions, and double B follows the latest lines. Moving down beyond the final content page or typing a keyboard key while reading also opens Prompt Edit; the first printable key becomes literal input. In lists, held B returns and double B opens session content.
 
@@ -62,6 +66,8 @@ In session content, B opens Prompt Edit, held B opens model/effort/refresh actio
 | A | Cursor left | Repeated left | Home |
 | B | Execute | EN ↔ 한글 | Return to content |
 | C | Cursor right | Repeated right | End |
+
+At the start of the text, A/held A or keyboard Left returns to session content, preserving the draft, caret and reader position. Double A moves Home and stays in the editor.
 
 Tab switches **EN ↔ 한글**; Esc returns, Backspace deletes at the cursor, and Ctrl+U clears the local draft. UTF-8 cursor movement and insertion preserve whole Korean characters; committing active composition permits middle editing. Shifted Latin keys select doubled Korean consonants/vowels. Keyboard navigation letters remain literal input while reading or editing. B or Enter executes the draft only for a real controllable native session. The draft clears only after the journal admits this device's matching command ID. Rejected or ambiguous delivery retains it and never automatically resends.
 

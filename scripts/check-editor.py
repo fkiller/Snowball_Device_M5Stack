@@ -69,6 +69,10 @@ try:
     expect(action('editor-check', action='key', key=ord('X')), '한X글', 4)
     expect(action('editor-check', action='key', key=8), '한글', 3)
     expect(action('editor-check', action='home'), '한글', 0)
+    returned=action('editor-check', action='left')
+    assert returned['page']==0 and returned['focus']=='content'
+    assert returned['draft']=='한글' and returned['editCaret']==0
+    # Re-enter through the actual reading key handler; the draft and caret survive.
     expect(action('editor-check', action='key', key=ord('A')), 'A한글', 1)
     expect(action('editor-check', action='end'), 'A한글', 7)
     expect(action('editor-check', action='hold-left'), 'A한글', 4)
@@ -76,9 +80,15 @@ try:
     expect(action('editor-check', action='hold-right'), 'A한글', 4)
     expect(action('editor-check', action='end'), 'A한글', 7)
     expect(action('editor-check', action='key', key=ord('Z')), 'A한글Z', 8)
+    expect(action('editor-check', action='home'), 'A한글Z', 0)
+    returned=action('editor-check', action='hold-left')
+    assert returned['page']==0 and returned['draft']=='A한글Z'
     action('clear-check')
     # A navigation letter typed while reading must become literal input.
     expect(action('editor-check', action='key', key=ord('W')), 'W', 1)
+    expect(action('editor-check', action='home'), 'W', 0)
+    returned=action('editor-check', action='key', key=0xb4)
+    assert returned['page']==0 and returned['draft']=='W' and returned['editCaret']==0
     action('clear-check')
     action('ime-check', korean=initial['korean'], keys='')
     final = action('clear-check')
@@ -86,6 +96,7 @@ try:
     assert final['korean'] == initial['korean']
     assert final['view']['sessionKey'] == initial['view']['sessionKey']
     print(json.dumps({'endEntersEditor': True, 'readingKeyEntersEditor': True,
+                     'leftAtStartReturnsToContent': True, 'draftPreservedOnReturn': True,
                      'utf8Cursor': True, 'holdRepeat': True, 'homeEnd': True,
                      'languageRestored': True, 'nativePromptsSent': 0}))
 finally:

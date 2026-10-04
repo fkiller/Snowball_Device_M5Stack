@@ -13,6 +13,7 @@ import serial
 parser=argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--port',required=True)
 parser.add_argument('--screens',type=Path)
+parser.add_argument('--capture-names',nargs='+',help='Capture only named screens; all navigation checks still run')
 parser.add_argument('--input-screens',action='store_true',help='Explicit disposable English/Korean rendering QA; refuses an existing draft')
 args=parser.parse_args()
 port=serial.Serial();port.port=args.port;port.baudrate=115200;port.timeout=.15;port.dtr=port.rts=False;port.open()
@@ -48,15 +49,15 @@ def action(name,settle=True):
         if time.monotonic()>deadline:raise RuntimeError('Native navigation request did not settle')
         time.sleep(.15)
 def capture(name):
-    if not args.screens:return
-    from PIL import Image
-    send('screenshot');wait('screen_begin')
+    if not args.screens or (args.capture_names and name not in args.capture_names):return
+    from framebuffer import decode_framebuffer
+    send('screenshot',raw=True);begin=wait('screen_begin');pixel_format=begin['format']
     rows={}
     for _ in range(240):
-        row=wait('screen_row');raw=base64.b64decode(row['data'],validate=True);assert len(raw)==960;rows[row['y']]=raw
+        row=wait('screen_row');raw=base64.b64decode(row['data'],validate=True);rows[row['y']]=raw
     wait('screen_end');assert set(rows)==set(range(240))
     args.screens.mkdir(parents=True,exist_ok=True)
-    Image.frombytes('RGB',(320,240),b''.join(rows[y] for y in range(240))).save(args.screens/(name+'.png'))
+    decode_framebuffer(rows,pixel_format).save(args.screens/(name+'.png'))
     print('Captured real framebuffer: '+name,flush=True)
 def check(state,**expected):
     for key,value in expected.items():assert state[key]==value,(key,state[key],value)
