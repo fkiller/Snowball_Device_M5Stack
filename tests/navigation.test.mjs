@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {DeviceNavigation,windowStart,harnessAbbreviation,wrapLines,sessionText} from '../src/navigation.mjs';
+import {DeviceNavigation,windowStart,harnessAbbreviation,wrapLines,sessionText,latestSession} from '../src/navigation.mjs';
 const snapshot={accessMode:'local-no-auth',hostname:'REAL-PC',realSessions:{'snowball.codex':{project:Array.from({length:30},(_,i)=>({id:'n'+i,sessionKey:'k'+i,title:'Session '+i,ownerId:'real-owner',revision:7,readOnly:false}))},'snowball.antigravity':{other:[{id:'agy',sessionKey:'agy-key',title:'AGY session',readOnly:true}]}},commands:[],turnsStore:{k14:[{role:'user',text:'native question',agentResponse:'실제 응답\n'+('line\n'.repeat(100))}]}};
 test('two devices retain independent selection, theme, model and scroll across own restart',async()=>{
   let saved;const make=options=>new DeviceNavigation({api:async()=>snapshot,machineName:'REAL-PC',...options});
@@ -12,12 +12,13 @@ test('two devices retain independent selection, theme, model and scroll across o
 test('selected session is anchored at first, middle or last viewport position',()=>{
   assert.equal(windowStart(30,0),0);assert.equal(windowStart(30,14),11);assert.equal(windowStart(30,29),23);
 });
-test('machine and harness hierarchy comes from observed sources and keeps five-character labels',async()=>{
+test('machine, harness, project and session hierarchy comes from observed sources',async()=>{
   const nav=new DeviceNavigation({api:async()=>snapshot,machineName:'fallback',saved:{sessionKey:'k14'}});
   let v=await nav.action({op:'machines'});assert.deepEqual(v.items,['REAL-PC']);
   v=await nav.action({op:'select',index:0});assert.equal(v.menuKind,'harnesses');assert.deepEqual(v.items,['CODEX','AGY']);
-  v=await nav.action({op:'select',index:1});assert.equal(v.menuKind,'sessions');assert.deepEqual(v.items,['AGY session']);
-  assert.equal(v.sessionKey,'');assert.equal(harnessAbbreviation('snowball.opencode'),'OCODE');assert.ok(harnessAbbreviation('other.long-harness').length<=5);
+  v=await nav.action({op:'select',index:1});assert.equal(v.menuKind,'projects');assert.deepEqual(v.items,['other']);assert.equal(v.sessionKey,'agy-key');
+  v=await nav.action({op:'select',index:0});assert.equal(v.menuKind,'sessions');assert.deepEqual(v.items,['AGY session']);
+  assert.equal(v.project,'other');assert.equal(harnessAbbreviation('snowball.opencode'),'OCODE');assert.ok(harnessAbbreviation('other.long-harness').length<=5);
 });
 test('session list preserves the selected native destination and global Home/End indexes',async()=>{
   const nav=new DeviceNavigation({api:async()=>snapshot,machineName:'REAL-PC',saved:{sessionKey:'k14'}});
@@ -37,7 +38,28 @@ test('changing harness cancels a pending model result and does not send a native
   const nav=new DeviceNavigation({api,machineName:'REAL-PC',saved:{sessionKey:'k14'}});
   await nav.action({op:'models'});await nav.action({op:'harnesses'});await nav.action({op:'select',index:1});
   finish({models:[{model:'old-model'}]});await new Promise(r=>setImmediate(r));
-  const view=await nav.action({op:'poll'});assert.equal(view.menuKind,'sessions');assert.deepEqual(view.items,['AGY session']);assert.equal(commands,0);
+  const view=await nav.action({op:'poll'});assert.equal(view.menuKind,'projects');assert.deepEqual(view.items,['other']);assert.equal(commands,0);
+});
+
+test('unselected controllers pick actual latest activity while an existing selection stays private',async()=>{
+  const s=structuredClone(snapshot);s.realSessions['snowball.codex'].project[3].updatedAt='2026-10-03T18:00:00Z';
+  s.realSessions['snowball.antigravity'].other[0].updatedAt=1791051000;
+  s.commands=[{sessionKey:'k7',updatedAt:1791055000000}];
+  assert.equal(latestSession(s).sessionKey,'k7');
+  const nav=new DeviceNavigation({api:async()=>s,machineName:'actual'});let v=await nav.action({op:'poll'});assert.equal(v.sessionKey,'k7');assert.equal(v.project,'project');
+  s.commands.push({sessionKey:'agy-key',updatedAt:1791059000000});v=await nav.action({op:'poll'});assert.equal(v.sessionKey,'k7');
+  const other=await new DeviceNavigation({api:async()=>s,machineName:'actual'}).action({op:'poll'});assert.equal(other.sessionKey,'agy-key');
+  const missing=await new DeviceNavigation({api:async()=>s,machineName:'actual',saved:{sessionKey:'removed-session',model:'stale-model',effort:'stale-effort',scroll:50}}).action({op:'poll'});
+  assert.equal(missing.sessionKey,'agy-key');assert.equal(missing.model,'Native default');assert.equal(missing.effort,'Native default');assert.equal(missing.contentOffset,0);
+  const empty=await new DeviceNavigation({api:async()=>({accessMode:'local-no-auth',realSessions:{}}),machineName:'actual'}).action({op:'poll'});assert.equal(empty.session,'');
+});
+
+test('projects keep identical display names at distinct actual paths separate and consume plugin icons',async()=>{
+  const s=structuredClone(snapshot);s.realSessions['snowball.codex'].project[0].cwd='C:/one/project';s.realSessions['snowball.codex'].project[1].cwd='C:/two/project';
+  s.harnessPresentations={'snowball.codex':{name:'Codex',icon:{size:16,rows:Array(16).fill(0x1234)}}};
+  const nav=new DeviceNavigation({api:async()=>s,machineName:'actual',saved:{sessionKey:'k0'}});
+  const v=await nav.action({op:'projects'});assert.equal(v.menuIndex,0);assert.equal(v.harnessName,'Codex');assert.deepEqual(v.harnessIcon,s.harnessPresentations['snowball.codex'].icon);
+  const sessions=await nav.action({op:'select',index:1});assert.equal(sessions.menuKind,'sessions');assert.deepEqual(sessions.items,['Session 1']);assert.equal(sessions.sessionKey,'k1');
 });
 
 test('dispatch rechecks native ownership while capability discovery is pending',async()=>{

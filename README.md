@@ -12,11 +12,11 @@ Hardware reference photo: © M5Stack, from the [official FACES Kit documentation
 | --- | --- | --- |
 | ![Actual M5Stack firmware settings screen](assets/screenshots/settings.png) | ![Actual M5Stack English input screen](assets/screenshots/english-input.png) | ![Actual M5Stack Korean input screen](assets/screenshots/korean-input.png) |
 
-These 320×240 images were captured from the real M5Stack 0.2.0 framebuffer on 2026-10-03. Settings and English/Korean composition show the breadcrumb and universal ABC footer. Input text was entered through the USB IME diagnostic, which sends no harness prompt. **Tab or held B** switches languages. Native session transcripts are kept out of the screenshot gallery. These captures verify device rendering; physical keypresses and a completed native harness turn remain unverified.
+These 320×240 images were captured from the real M5Stack 0.2.2 framebuffer on 2026-10-04. The breadcrumb shows the harness's plugin icon, [project], and session; focusing a harness reveals its full name. The single-row footer draws tap, hold, and double-click gestures beside action symbols. Input text was entered through the USB IME diagnostic, which sends no harness prompt. **Tab or held B** switches languages. Native session transcripts are kept out of the screenshot gallery. These captures verify device rendering; physical keypresses and a completed native harness turn remain unverified.
 
 The system architecture and deployment verification are maintained only in [Snowball_Control/docs/ARCHITECTURE.md](https://github.com/fkiller/Snowball_Control/blob/main/docs/ARCHITECTURE.md).
 
-Version 0.2.1 requires the middleware's `/v1/controller` API. Each enrolled board restores its own session, model/effort, theme and scroll position; keyboard language persists on the board. M5Stack navigation does not change MK20 or Supervisor tab selections. The gallery above records the earlier 0.2.0 rendering.
+Version 0.2.2 requires the middleware's `/v1/controller` API and plugin presentation metadata. Each enrolled board restores its own session, model/effort, theme and scroll position; keyboard language persists on the board. With no valid saved session, it opens the real middleware's latest active session and derives its harness and project. Later activity on another controller does not replace an explicit selection. M5Stack navigation does not change MK20 or Supervisor tab selections.
 
 ## Build and upload
 
@@ -53,9 +53,17 @@ USB provisions a random device enrollment key. The key stays in `.local/pairing.
 | B | Select / Compose | Context action shown in the footer | Context action shown in the footer |
 | C | ↓ / right | PgDn | End |
 
-Session content is the default screen. Home moves to its first line; another ↑ enters the session breadcrumb. B opens that harness's session list, centered on the current session. Home then ↑ returns to content with the session breadcrumb focused. Move left to select the harness, then the actual machine, then the menu icon for Settings. The machine crumb appears only when focus reaches it or the menu icon. Lists use the same paging/Home/End controls. Machine discovery currently exposes the one real host observed by this loopback gateway.
+Session content is the default screen. Home moves to its first line; another ↑ enters the session breadcrumb. B opens the current project's session list, centered on the current session. Home then ↑ returns to content with the session breadcrumb focused. Move left through **session → [project] → harness → machine → menu**. Selecting project or harness opens its real source list; the menu opens Settings. The machine crumb appears only when focus reaches it or the menu icon. Lists use the same paging/Home/End controls. Machine discovery currently exposes the one real host observed by this loopback gateway.
 
-In session content, B composes, held B opens model/effort/refresh actions, and double B follows the latest lines. In lists, held B returns and double B opens session content. In Compose, held B or Tab switches **EN ↔ 한글**, and double B returns. A/C move among Review send, Language, Clear and Back. Review shows a separate Send/Back confirmation; held or double B cancels it. WASD is navigation outside editors and literal text inside them; Backspace edits and Enter reviews/submits the selected confirmation. Shifted Latin keys select doubled Korean consonants/vowels. Text is UTF-8 throughout. A failed/unconfirmed send is never automatically resent.
+In session content, B opens Prompt Edit, held B opens model/effort/refresh actions, and double B follows the latest lines. Moving down beyond the final content page or typing a keyboard key while reading also opens Prompt Edit; the first printable key becomes literal input. In lists, held B returns and double B opens session content.
+
+| Prompt Edit button | Click | Hold / repeat | Double |
+| --- | --- | --- | --- |
+| A | Cursor left | Repeated left | Home |
+| B | Execute | EN ↔ 한글 | Return to content |
+| C | Cursor right | Repeated right | End |
+
+Tab switches **EN ↔ 한글**; Esc returns, Backspace deletes at the cursor, and Ctrl+U clears the local draft. UTF-8 cursor movement and insertion preserve whole Korean characters; committing active composition permits middle editing. Shifted Latin keys select doubled Korean consonants/vowels. Keyboard navigation letters remain literal input while reading or editing. B or Enter executes the draft only for a real controllable native session. The draft clears only after the journal admits this device's matching command ID. Rejected or ambiguous delivery retains it and never automatically resends.
 
 Wi-Fi settings scan 2.4GHz networks, accept passwords, connect and save only a successfully joined network, support hidden SSIDs, and offer explicit Forget. Hold all three buttons for 2.5 seconds to reset device enrollment; reconnect USB to enroll again.
 
@@ -79,6 +87,8 @@ python scripts/check-wifi.py --port COM7 --require-aps --exercise-input
 python scripts/check-navigation.py --port COM7 --screens artifacts/navigation-screens
 # Optional disposable EN/KR draft captures; refuses an existing user draft:
 python scripts/check-navigation.py --port COM7 --screens artifacts/navigation-screens --input-screens
+# Explicit disposable real editor/cursor checks; refuses an existing draft:
+python scripts/check-editor.py --port COM7
 ```
 
 The native IME test compiles the exact header used by firmware. `device_qa.py` reads the real firmware state and its on-device rendered framebuffer; it does not dispatch a harness command. Screenshot evidence does not establish that a person physically pressed the buttons or that Wi-Fi credentials were entered correctly.

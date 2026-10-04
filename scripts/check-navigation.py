@@ -65,12 +65,16 @@ def check(state,**expected):
 try:
     initial=inspect()
     if initial['page'] in (2,3,5):raise RuntimeError('Device is editing; no QA actions were sent.')
+    deadline=time.monotonic()+20
+    while not (initial.get('view') or {}).get('connected'):
+        if time.monotonic()>deadline:raise RuntimeError('Actual middleware is unavailable')
+        time.sleep(.2);initial=inspect()
     state=action('content');check(state,page=0,focus='content')
     assert state['view'].get('connected'),'Actual middleware is unavailable'
     state=action('end');assert state['cursor']==max(0,state['view']['contentTotal']-11)
     state=action('home');assert state['cursor']==0
     capture('session-content')
-    state=action('home');state=action('up');check(state,page=0,focus='top',crumb=3)
+    state=action('home');state=action('up');check(state,page=0,focus='top',crumb=4)
     state=action('select');check(state,page=1,focus='content');assert state['view']['menuKind']=='sessions'
     selected=state['view']['menuIndex'];total=state['view']['menuTotal'];assert total>0
     assert state['cursor']==selected and state['viewportStart']==state['view']['menuOffset']
@@ -81,11 +85,17 @@ try:
     if total>7:
         state=action('pgdn');assert state['cursor']==7
         state=action('pgup');assert state['cursor']==0
+    state=action('up');check(state,page=0,focus='top',crumb=4)
     state=action('up');check(state,page=0,focus='top',crumb=3)
+    state=action('select');check(state,page=1,focus='content');assert state['view']['menuKind']=='projects'
+    projects=state['view']['menuTotal'];assert projects>0
+    capture('project-list')
+    state=action('home');state=action('up');check(state,page=0,focus='top',crumb=3)
     state=action('up');check(state,page=0,focus='top',crumb=2)
+    capture('harness-breadcrumb')
     state=action('select');check(state,page=1,focus='content');assert state['view']['menuKind']=='harnesses'
     harnesses=state['view']['menuTotal'];assert harnesses>0
-    assert all(len(label)<=5 for label in state['view']['items'])
+    assert all(icon['size']==16 for icon in state['view']['itemIcons'] if icon)
     capture('harness-list')
     state=action('home');state=action('up');check(state,page=0,focus='top',crumb=2)
     state=action('up');check(state,page=0,focus='top',crumb=1)
@@ -111,6 +121,11 @@ try:
             if after['draft']!=expected or after['page']!=2:raise RuntimeError('Human input changed the draft; leaving it untouched.')
             while after['pending']:time.sleep(.15);after=inspect()
             send('clear-check');time.sleep(.15)
+        send('ime-check',korean=initial['korean'],keys='');time.sleep(.15)
+        restored=inspect()
+        if restored['draft']:raise RuntimeError('Human input detected; leaving it untouched.')
+        while restored['pending']:time.sleep(.15);restored=inspect()
+        send('clear-check');time.sleep(.15)
         state=action('content');check(state,page=0,focus='content')
     print(json.dumps({'actualSessionCount':total,'actualHarnessCount':harnesses,
                       'focusHierarchy':True,'homeEndPaging':True,'fontLayout':True,

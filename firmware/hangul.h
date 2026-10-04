@@ -59,15 +59,26 @@ inline std::string compose(const std::string& keys) {
   flush();return out;
 }
 class TextInput {
-  std::vector<std::string> parts;
+  std::string value;
+  size_t position=0;
   std::string keys;
  public:
   bool korean=false;
-  std::string text()const{std::string out;for(const auto& p:parts)out+=p;return out+compose(keys);}
-  void commit(){auto s=compose(keys);if(!s.empty())parts.push_back(s);keys.clear();}
+  std::string text()const{return value.substr(0,position)+compose(keys)+value.substr(position);}
+  size_t caret()const{return position+compose(keys).size();}
+  void commit(){auto s=compose(keys);value.insert(position,s);position+=s.size();keys.clear();}
   void toggle(){commit();korean=!korean;}
-  bool append(char c){if(text().size()>=2000)return false;if(korean)keys+=c;else parts.push_back(std::string(1,c));return true;}
-  void backspace(){if(!keys.empty()){keys.pop_back();return;}if(parts.empty())return;auto &s=parts.back();size_t i=s.size()-1;while(i>0&&((unsigned char)s[i]&0xc0)==0x80)--i;s.erase(i);if(s.empty())parts.pop_back();}
-  void clear(){parts.clear();keys.clear();}
+  bool append(char c){
+    if(korean){if(value.size()+compose(keys+c).size()>2000)return false;keys+=c;}
+    else{if(value.size()+1>2000)return false;value.insert(position,1,c);++position;}
+    return true;
+  }
+  void move(int direction){
+    commit();if(direction<0&&position){--position;while(position&&((unsigned char)value[position]&0xc0)==0x80)--position;}
+    else if(direction>0&&position<value.size()){++position;while(position<value.size()&&((unsigned char)value[position]&0xc0)==0x80)++position;}
+  }
+  void edge(bool end){commit();position=end?value.size():0;}
+  void backspace(){if(!keys.empty()){keys.pop_back();return;}if(!position)return;size_t old=position;move(-1);value.erase(position,old-position);}
+  void clear(){value.clear();keys.clear();position=0;}
 };
 }
