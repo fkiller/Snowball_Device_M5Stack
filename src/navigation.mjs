@@ -1,5 +1,6 @@
 import {createHash} from 'node:crypto';
 import {flattenSessions,validateAction} from './protocol.mjs';
+import {translate,validLocale} from './i18n.mjs';
 
 export const LIST_ROWS=7, CONTENT_ROWS=11;
 const projectKey=s=>String(s.cwd??s.project??'');
@@ -33,19 +34,20 @@ export function wrapLines(text,columns=42){
   }
   return lines;
 }
-export function sessionText(snapshot,current){
+export function sessionText(snapshot,current,locale='en'){
   if(!current)return '';
   const turns=snapshot.turnsStore?.[current.sessionKey]??snapshot.turnsStore?.[current.id]??snapshot.sessionMessages?.[current.sessionKey]??[];
   const messages=[];
   for(const turn of turns){
     const text=turn.text??turn.content;
-    if(typeof text==='string'&&text)messages.push(`${String(turn.role??'message').toUpperCase()}\n${text}`);
-    if(typeof turn.agentResponse==='string'&&turn.agentResponse&&turn.agentResponse!==text)messages.push(`ASSISTANT\n${turn.agentResponse}`);
+    if(typeof text==='string'&&text)messages.push(`${translate(locale,String(turn.role??'message').toLowerCase())}\n${text}`);
+    if(typeof turn.agentResponse==='string'&&turn.agentResponse&&turn.agentResponse!==text)messages.push(`${translate(locale,'assistant')}\n${turn.agentResponse}`);
   }
-  return messages.length?messages.join('\n\n'):current.preview?`PREVIEW\n${current.preview}`:'';
+  return messages.length?messages.join('\n\n'):current.preview?`${translate(locale,'preview')}\n${current.preview}`:'';
 }
 export class DeviceNavigation {
   constructor({api,machineName,saved={},save=()=>{}}){
+    this.locale=validLocale(saved.locale)?saved.locale:'en';
     Object.assign(this,{api,machineName,save,saved,selection:null,harness:saved.harness??null,model:saved.model??null,effort:saved.effort??null,
       project:null,menu:[],menuKind:'',menuIndex:0,lastCommand:null,skin:saved.skin??'slate-dark',override:null,snapshotCache:null,
       catalogPending:false,catalogGeneration:0,contentIndex:saved.scroll??0,contentLines:[],contentHash:''});
@@ -67,14 +69,14 @@ export class DeviceNavigation {
     if(!this.selection&&!this.menuKind){this.selection=latestSession(snapshot,sessions);this.harness=this.selection?.pluginId??this.harness;this.project=this.selection?projectKey(this.selection):null;this.model=this.effort=null;this.contentIndex=0;this.lastCommand=null;}
     return snapshot;
   }
-  persist(){this.saved={...this.saved,sessionKey:this.selection?.sessionKey??null,harness:this.harness,model:this.model,effort:this.effort,skin:this.skin,scroll:this.contentIndex};this.save(this.saved);}
+  persist(){this.saved={...this.saved,locale:this.locale,sessionKey:this.selection?.sessionKey??null,harness:this.harness,model:this.model,effort:this.effort,skin:this.skin,scroll:this.contentIndex};this.save(this.saved);}
   harnesses(s){
     return [...new Set([...Object.keys(s.realSessions??{}),...(s.connectedHarnesses??[]).map(h=>h.pluginId),
       ...flattenSessions(s).map(h=>h.pluginId)].filter(Boolean))].map(pluginId=>({label:s.harnessPresentations?.[pluginId]?.name??harnessAbbreviation(pluginId),pluginId}));
   }
   sessionView(s){
     const current=this.selection;
-    const text=sessionText(s,current),hash=createHash('sha256').update((current?.sessionKey??'')+'\n'+text).digest('hex');
+    const text=sessionText(s,current,this.locale),hash=createHash('sha256').update((current?.sessionKey??'')+'\n'+text).digest('hex');
     if(hash!==this.contentHash){this.contentHash=hash;this.contentLines=text?wrapLines(text):[];}
     this.contentIndex=Math.max(0,Math.min(this.contentIndex,Math.max(0,this.contentLines.length-CONTENT_ROWS)));
     const command=this.lastCommand?(s.commands??[]).find(c=>c.commandId===this.lastCommand):null;
@@ -84,18 +86,23 @@ export class DeviceNavigation {
       harnessName:presentation?.name??harnessAbbreviation(this.harness??current?.pluginId??''),harnessIcon:presentation?.icon??null,
       project:String(current?.project??this.menu.find(it=>it.key===this.project)?.label??''),
       sessionKey:current?.sessionKey??'',session:String(current?.title??current?.nativeSessionId??''),
-      destination:String(current?.title??''),model:String(this.model??current?.model??'Native default').slice(0,40),
-      effort:String(this.effort??current?.effort??'Native default').slice(0,24),readOnly:current?.readOnly??true,
-      commandId:this.lastCommand??'',commandStatus:command?.status??(this.lastCommand?'unconfirmed':'idle'),message:this.override??(command?`Command: ${command.status}`:'Ready'),
+      destination:String(current?.title??''),model:String(this.model??current?.model??translate(this.locale,'nativeDefault')).slice(0,40),
+      effort:String(this.effort??current?.effort??translate(this.locale,'nativeDefault')).slice(0,24),readOnly:current?.readOnly??true,
+      commandId:this.lastCommand??'',commandStatus:command?.status??(this.lastCommand?'unconfirmed':'idle'),message:this.localizedOverride()??(command?`${translate(this.locale,'command')}: ${command.status}`:translate(this.locale,'ready')),
       items:this.menu.slice(offset,offset+LIST_ROWS).map(it=>Array.from(it.label).slice(0,80).join('')),
       itemIcons:this.menu.slice(offset,offset+LIST_ROWS).map(it=>s.harnessPresentations?.[it.pluginId]?.icon??null),
-      menuKind:this.menuKind,menuTotal:this.menu.length,menuOffset:offset,menuIndex:this.menuIndex,
+      menuKind:this.menuKind,menuTotal:this.menu.length,menuOffset:offset,menuIndex:this.menuIndex,catalogPending:this.catalogPending,
       contentLines:this.contentLines.slice(this.contentIndex,this.contentIndex+CONTENT_ROWS),contentOffset:this.contentIndex,
-      contentTotal:this.contentLines.length,contentHash:this.contentHash,skinId:this.skin,skinName:this.skin==='slate-dark'?'Slate Dark':'High Contrast'};
+      contentTotal:this.contentLines.length,contentHash:this.contentHash,skinId:this.skin,skinName:translate(this.locale,this.skin==='slate-dark'?'slate':'contrast')};
+  }
+  localizedOverride(){
+    if(!this.override)return null;
+    const {key,suffix,detail}=this.override;
+    return translate(this.locale,key)+(suffix?`: ${suffix}`:'')+(detail?`. ${translate(this.locale,detail)}`:'');
   }
   list(kind,items,index=0){
     ++this.catalogGeneration;this.catalogPending=false;this.menuKind=kind;this.menu=items;
-    this.menuIndex=Math.max(0,Math.min(index,items.length-1));this.override=items.length?null:'No native entries';
+    this.menuIndex=Math.max(0,Math.min(index,items.length-1));this.override=items.length?null:{key:'noEntries'};
   }
   listSessions(s){
     const items=flattenSessions(s).filter(target=>(!this.harness||target.pluginId===this.harness)&&(this.project===null||projectKey(target)===this.project)).map(target=>({label:target.title??target.nativeSessionId??target.id,target}));
@@ -113,6 +120,7 @@ export class DeviceNavigation {
   }
   async action(raw){
     const a=validateAction(raw);
+    if(a.locale!==undefined)this.locale=a.locale;
     const cachedRead=['poll','status','browse'].includes(a.op);
     const s=cachedRead&&this.catalogPending&&this.snapshotCache?this.snapshotCache:await this.state();
     if(['poll','status'].includes(a.op))return this.sessionView(s);
@@ -146,7 +154,7 @@ export class DeviceNavigation {
     if(a.op==='models'||a.op==='efforts'){
       if(this.catalogPending)return this.sessionView(s);
       const targetSession={...this.selection},targetModel=this.model??this.selection.model,generation=++this.catalogGeneration;
-      this.menuKind=a.op;this.menu=[];this.menuIndex=0;this.catalogPending=true;this.override='Discovering native capabilities...';
+      this.menuKind=a.op;this.menu=[];this.menuIndex=0;this.catalogPending=true;this.override={key:'discovering'};
       void (async()=>{
         try{
           const response=await this.api('/v1/harness/models',{pluginId:targetSession.pluginId??targetSession.harness?.pluginId,instanceId:targetSession.harness?.instanceId??'default'});
@@ -155,8 +163,8 @@ export class DeviceNavigation {
           if(a.op==='models')this.menu=models.slice(0,32).map(target=>({label:target.displayName??target.model,target}));
           else this.menu=(models.find(m=>m.model===targetModel)?.efforts??[]).map(target=>({label:typeof target==='string'?target:target.id,target:typeof target==='string'?target:target.id}));
           this.menuIndex=Math.max(0,this.menu.findIndex(it=>a.op==='models'?it.target.model===targetModel:it.target===this.effort));
-          this.override=this.menu.length?null:'No native capabilities reported';
-        }catch(error){if(generation===this.catalogGeneration)this.override=`Native discovery failed: ${error.message}`;}
+          this.override=this.menu.length?null:{key:'noCapabilities'};
+        }catch(error){if(generation===this.catalogGeneration)this.override={key:'discoveryFailed',suffix:error.message};}
         finally{if(generation===this.catalogGeneration)this.catalogPending=false;}
       })();
       return this.sessionView(s);
@@ -168,7 +176,7 @@ export class DeviceNavigation {
       if((s.commands??[]).some(c=>c.commandId===commandId)){this.lastCommand=commandId;return this.sessionView(s);}
       this.lastCommand=commandId;this.override=null;
       try{await this.api('/v1/commands',{commandId,sessionKey:current.sessionKey,ownerId:current.ownerId,expectedRevision:current.revision,operation:'sessions.send',payload:{text:a.text,...(this.model?{model:this.model}:{}),...(this.effort?{effort:this.effort}:{})}});}
-      catch(error){this.override=`Delivery unconfirmed: ${error.message}. Inspect status; do not resend.`;throw error;}
+      catch(error){this.override={key:'deliveryUnknown',suffix:error.message,detail:'inspectStatus'};throw error;}
       return this.sessionView(await this.state());
     }
   }

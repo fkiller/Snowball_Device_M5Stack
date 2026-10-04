@@ -13,4 +13,7 @@ try {
   $navCommand = 'call "' + $setup + '" && cl /nologo /EHsc /utf-8 /std:c++17 tests\navigation.cpp /Fe:artifacts\navigation-test.exe /Fo:artifacts\navigation-test.obj && artifacts\navigation-test.exe'
   & cmd.exe /d /c $navCommand
   if ($LASTEXITCODE -ne 0) { throw 'Native navigation test failed.' }
+  $connectionCommand = 'call "' + $setup + '" && cl /nologo /EHsc /utf-8 /std:c++17 tests\connection.cpp /Fe:artifacts\connection-test.exe /Fo:artifacts\connection-test.obj && artifacts\connection-test.exe'
+  & cmd.exe /d /c $connectionCommand
+  if ($LASTEXITCODE -ne 0) { throw 'Native connection/locale test failed.' }
 } finally { Pop-Location }

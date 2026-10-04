@@ -102,26 +102,32 @@ try:
         send('wifi-key-check', key=13)
         send('inspect')
         state = wait('inspection', 6)
-        if state['page'] != 5 or state['passwordLength'] != 0:
-            raise RuntimeError('No empty password screen; user input was left untouched.')
+        if state['page'] != 5:
+            raise RuntimeError('No password screen; user input was left untouched.')
+        # Previously joined APs now prefill a saved key. Keep its NVS value
+        # intact; appended diagnostic text is a disposable draft, never sent.
+        original_length=state['passwordLength']
+        if original_length>51:
+            send('wifi-key-check',key=27)
+            raise RuntimeError('Saved key leaves no room for disposable input QA.')
         for key in 'qa-only-pass':
             send('wifi-key-check', key=ord(key))
         send('wifi-key-check', key=9)
         send('inspect')
         shown = wait('inspection', 6)
-        assert shown['passwordVisible'] and shown['passwordLength'] == 12
+        assert shown['passwordVisible'] and shown['passwordLength'] == original_length+12
         send('wifi-scan')
         refused = wait('wifi-networks', 6)
         assert refused['ok'] is False and refused['code'] == 'editing'
         time.sleep(4)
         send('inspect')
         retained = wait('inspection', 6)
-        assert retained['page'] == 5 and retained['passwordLength'] == 12 and retained['passwordVisible']
+        assert retained['page'] == 5 and retained['passwordLength'] == original_length+12 and retained['passwordVisible']
         send('wifi-key-check', key=9)
         send('wifi-key-check', key=8)
         send('inspect')
         hidden = wait('inspection', 6)
-        assert not hidden['passwordVisible'] and hidden['passwordLength'] == 11
+        assert not hidden['passwordVisible'] and hidden['passwordLength'] == original_length+11
         if args.password_screen:
             import base64
             from pathlib import Path

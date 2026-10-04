@@ -7,3 +7,5 @@ artifacts/
 .venv/
 *.wav
 *.bin
+
+assets/footer/*.svg.png

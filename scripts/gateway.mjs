@@ -9,6 +9,7 @@ import {randomBytes} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
 import readline from 'node:readline';
 import {DeviceNavigation} from '../src/navigation.mjs';
+import {translate} from '../src/i18n.mjs';
 import {ReplayGuard,sign,material,privateIp,MAX_FRAME,controllerIdForDevice} from '../src/protocol.mjs';
 
 const root=fileURLToPath(new URL('..',import.meta.url));
@@ -32,7 +33,7 @@ if(options.device)deviceAddress=options.device;
 if(deviceAddress&&(!privateIp(deviceAddress)||deviceAddress.startsWith('127.')))throw Error('private_device_address_required');
 if(options.device&&deviceId)fs.writeFileSync(path.join(directory,'device.json'),JSON.stringify({deviceId,ip:deviceAddress})+'\n',{mode:0o600});
 let serial,lastSeen=0,usbSeen=0,busy=false;
-let view={message:'Middleware unavailable',items:[],connected:false};
+let view={message:translate('en','unavailable'),items:[],connected:false};
 async function api(route,body) {
   if(!deviceId)throw Error('physical_device_required');
   const res=await fetch(options.backend+route,{method:body===undefined?'GET':'POST',headers:{Origin:options.backend,'Content-Type':'application/json','x-snowball-controller':controllerIdForDevice(deviceId)},...(body===undefined?{}:{body:JSON.stringify(body)}),signal:AbortSignal.timeout(route==='/v1/harness/models'?45000:4000)});
@@ -57,7 +58,7 @@ async function initializeController(){
 }
 async function checkpointController(){
   controller.persist();const n=controller.saved;
-  const patch={selection:{...(n.harness?{harnessPluginId:n.harness,harnessInstanceId:'default'}:{}),...(n.sessionKey?{sessionKey:n.sessionKey}:{})},preferences:{model:n.model??'',effort:n.effort??'',skinId:n.skin,scroll:n.scroll}};
+  const patch={selection:{...(n.harness?{harnessPluginId:n.harness,harnessInstanceId:'default'}:{}),...(n.sessionKey?{sessionKey:n.sessionKey}:{})},preferences:{language:n.locale,model:n.model??'',effort:n.effort??'',skinId:n.skin,scroll:n.scroll}};
   const encoded=JSON.stringify(patch);if(encoded===lastCheckpoint)return;
   try{ownedState=await api('/v1/controller',{expectedRevision:ownedState.revision,patch});lastCheckpoint=encoded;}
   catch(error){if(error.message==='stale_controller_revision'){ownedState=await api('/v1/controller');throw Error('controller_state_changed');}throw error;}
@@ -67,7 +68,7 @@ const action=async raw=>{
   await initializeController();const result=await controller.action(raw);
   await checkpointController();view={...result,deviceId,controllerId:controllerIdForDevice(deviceId)};return view;
 };
-function fault(error){view={...view,connected:false,message:shorten(error.message,120)};return view;}
+function fault(error){view={...view,connected:false,message:`${translate(controller.locale,'unavailable')}: ${shorten(error.message,80)}`};return view;}
 const sendSerial=obj=>{if(serial?.stdin.writable&&serial.stdin.writableLength<65536)serial.stdin.write(JSON.stringify(obj)+'\n');};
 if(options.serial){
   serial=spawn(options.python,[path.join(root,'scripts/serial_bridge.py'),'--port',options.serial],{windowsHide:true,stdio:['pipe','pipe','pipe']});
@@ -90,7 +91,7 @@ if(options.serial){
     }
     if(r.type!=='request'||!deviceId||r.deviceId!==deviceId||!Number.isInteger(r.id)||r.id<1)return;
     usbSeen=lastSeen=Date.now();
-    if(busy)return sendSerial({type:'response',id:r.id,view:{...view,message:'Gateway busy; check status'}});
+    if(busy)return sendSerial({type:'response',id:r.id,view:{...view,message:translate(controller.locale,'busy')}});
     busy=true;
     try{sendSerial({type:'response',id:r.id,view:await action(r.action)});}catch(error){sendSerial({type:'response',id:r.id,view:fault(error)});}finally{busy=false;}
   });

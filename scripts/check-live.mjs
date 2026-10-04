@@ -37,8 +37,8 @@ const poll=await action('poll');assert.equal(poll.view.connected,true);
 const sessions=await action('sessions');assert.ok(sessions.view.items.length>0);assert.equal(sessions.view.menuKind,'sessions');
 const selected=await action('select',0);assert.ok(selected.view.sessionKey);
 let models=await action('models');assert.ok(Array.isArray(models.view.items));
-for(let i=0;i<24&&models.view.message==='Discovering native capabilities...';i++){await new Promise(r=>setTimeout(r,1000));models=await action('poll');}
-assert.notEqual(models.view.message,'Discovering native capabilities...');
-if(models.view.items.length){await action('select',0);let efforts=await action('efforts');for(let i=0;i<24&&efforts.view.message==='Discovering native capabilities...';i++){await new Promise(r=>setTimeout(r,1000));efforts=await action('poll');}assert.ok(Array.isArray(efforts.view.items));console.log(JSON.stringify({models:models.view.items.length,modelEfforts:efforts.view.items.length}));}
+for(let i=0;i<24&&models.view.catalogPending;i++){await new Promise(r=>setTimeout(r,1000));models=await action('poll');}
+assert.equal(models.view.catalogPending,false);
+if(models.view.items.length){await action('select',0);let efforts=await action('efforts');for(let i=0;i<24&&efforts.view.catalogPending;i++){await new Promise(r=>setTimeout(r,1000));efforts=await action('poll');}assert.equal(efforts.view.catalogPending,false);assert.ok(Array.isArray(efforts.view.items));console.log(JSON.stringify({models:models.view.items.length,modelEfforts:efforts.view.items.length}));}
 const replay=await fetch(`http://${ip}:${reply.port}/device`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(poll.frame)});assert.equal(replay.status,403);
 console.log(JSON.stringify({authenticatedDiscovery:true,signedRequestResponse:true,replayRejected:true,nativeSessionPage:sessions.view.items.length,mutatingHarnessCommands:0}));

@@ -1,5 +1,7 @@
 # Snowball Device — M5Stack + FACES
 
+**English** · [한국어](README.ko.md)
+
 Native ESP32 firmware and a Snowball Protocol 1 hardware plugin for the original M5Stack Core / Gray and FACES QWERTY panel. The first release accepts English and Korean two-beolsik keyboard input; it does not capture audio or use a PC microphone.
 
 ## Device and running firmware
@@ -8,19 +10,29 @@ Native ESP32 firmware and a Snowball Protocol 1 hardware plugin for the original
 
 Hardware reference photo: © M5Stack, from the [official FACES Kit documentation](https://docs.m5stack.com/en/core/Faces_Kit). The photo shows the manufacturer's product, rather than this firmware running on our board; this release uses the QWERTY panel.
 
-| Settings / 설정 | English input / 영문 입력 | Korean input / 한글 입력 |
+| Settings | Display language | Input settings |
 | --- | --- | --- |
-| ![Actual M5Stack firmware settings screen](assets/screenshots/settings.png) | ![Actual M5Stack English input screen](assets/screenshots/english-input.png) | ![Actual M5Stack Korean input screen](assets/screenshots/korean-input.png) |
+| ![Actual English settings](assets/screenshots/en/settings.png) | ![Actual display language selector](assets/screenshots/en/display-language.png) | ![Actual input settings](assets/screenshots/en/input-settings.png) |
 
-These 320×240 images were captured from the real M5Stack 0.2.2 framebuffer on 2026-10-04. The breadcrumb shows the harness's plugin original color icon, project name without brackets, and session; focusing a harness reveals its full name. The single-row footer draws tap, hold, and double-click gestures beside action symbols. Input text was entered through the USB IME diagnostic, which sends no harness prompt. **Tab or held B** switches languages. Native session transcripts are kept out of the screenshot gallery. These captures verify device rendering; physical keypresses and a completed native harness turn remain unverified.
+| English input | Korean input | Connection status |
+| --- | --- | --- |
+| ![Actual English input](assets/screenshots/en/english-input.png) | ![Actual Korean input with English UI](assets/screenshots/en/korean-input.png) | ![Actual authenticated connection](assets/screenshots/en/connected.png) |
 
-![Actual native color harness icons on the M5Stack](assets/screenshots/harness-list.png)
+![Actual saved AP password prefilled and masked](assets/screenshots/en/saved-password.png)
+
+These native 320×240 framebuffers were captured from the real M5Stack 0.2.2 firmware on 2026-10-04. The [Korean documentation](README.ko.md) shows the same screens with Korean display text. **Display language and keyboard input are independent**: selecting English display keeps Korean input available, and selecting Korean display keeps English input available. Native session titles and content keep their original language. Diagnostic screenshots always mask Wi-Fi passwords, including when the LCD's Show option is enabled.
+
+The breadcrumb uses the harness's original color icon, the project name without brackets, and the session title; focusing a harness reveals its full name. The footer uses original [Lucide](https://lucide.dev/) action SVGs and [Pictogrammers Material Design](https://github.com/Templarian/MaterialDesign) tap/hold/double-tap SVGs, reduced with Lanczos and Floyd-Steinberg dithering to the RGB332 framebuffer. Source SVGs, pinned upstream URLs, hashes, and license notices are in `assets/footer`; generated pixels are in `firmware/footer_icons.h`. No icon downloads or conversions occur on the device.
+
+Input text in the gallery was entered through the disposable USB IME diagnostic, which sends no harness prompt. Native transcripts are kept out of the gallery. Captures verify the actual firmware renderer; physical keypresses and a completed native harness turn remain unverified.
+
+![Actual native color harness icons](assets/screenshots/en/harness-list.png)
 
 The plugin icons are reduced from the original Codex app icon in the installed official OpenAI extension, [Google Antigravity press asset](https://antigravity.google/press), and [OpenCode favicon](https://github.com/anomalyco/opencode/blob/dev/packages/ui/src/assets/favicon/favicon-96x96-v3.png). Lanczos scaling and dithering for the device's 8-bit RGB332 canvas (packed as RGB565) retain their colors and shapes at 16×16; each plugin owns its packed pixels and transparency mask.
 
 The system architecture and deployment verification are maintained only in [Snowball_Control/docs/ARCHITECTURE.md](https://github.com/fkiller/Snowball_Control/blob/main/docs/ARCHITECTURE.md).
 
-Version 0.2.2 requires the middleware's `/v1/controller` API and plugin presentation metadata. Each enrolled board restores its own session, model/effort, theme and scroll position; keyboard language persists on the board. With no valid saved session, it opens the real middleware's latest active session and derives its harness and project. Later activity on another controller does not replace an explicit selection. M5Stack navigation does not change MK20 or Supervisor tab selections.
+Version 0.2.2 requires the middleware's `/v1/controller` API and plugin presentation metadata. Each enrolled board restores its own session, model/effort, theme and scroll position; display and input languages persist separately on the board. The gateway checkpoints only this controller's display locale. With no valid saved session, it opens the real middleware's latest active session and derives its harness and project. Later activity on another controller does not replace an explicit selection. M5Stack navigation does not change MK20 or Supervisor tab selections.
 
 ## Build and upload
 
@@ -64,16 +76,20 @@ In session content, B opens Prompt Edit, held B opens model/effort/refresh actio
 | Prompt Edit button | Click | Hold / repeat | Double |
 | --- | --- | --- | --- |
 | A | Cursor left | Repeated left | Home |
-| B | Execute | EN ↔ 한글 | Return to content |
+| B | Execute | EN ↔ KO | Return to content |
 | C | Cursor right | Repeated right | End |
 
 At the start of the text, A/held A or keyboard Left returns to session content, preserving the draft, caret and reader position. Double A moves Home and stays in the editor.
 
-Tab switches **EN ↔ 한글**; Esc returns, Backspace deletes at the cursor, and Ctrl+U clears the local draft. UTF-8 cursor movement and insertion preserve whole Korean characters; committing active composition permits middle editing. Shifted Latin keys select doubled Korean consonants/vowels. Keyboard navigation letters remain literal input while reading or editing. B or Enter executes the draft only for a real controllable native session. The draft clears only after the journal admits this device's matching command ID. Rejected or ambiguous delivery retains it and never automatically resends.
+Tab switches **EN ↔ KO**; Esc returns, Backspace deletes at the cursor, and Ctrl+U clears the local draft. UTF-8 cursor movement and insertion preserve whole Korean characters; committing active composition permits middle editing. Shifted Latin keys select doubled Korean consonants/vowels. Keyboard navigation letters remain literal input while reading or editing. B or Enter executes the draft only for a real controllable native session. The draft clears only after the journal admits this device's matching command ID. Rejected or ambiguous delivery retains it and never automatically resends.
 
-Wi-Fi settings scan 2.4GHz networks, accept passwords, connect and save only a successfully joined network, support hidden SSIDs, and offer explicit Forget. Hold all three buttons for 2.5 seconds to reset device enrollment; reconnect USB to enroll again.
+Wi-Fi settings scan 2.4GHz networks, accept passwords, reuse the saved password when selecting a previously joined SSID, and save only a successfully joined network, support hidden SSIDs, and offer explicit Forget. Hold all three buttons for 2.5 seconds to reset device enrollment; reconnect USB to enroll again.
 
-AP scans run only when requested, with an explicit scanning/result/error status. Repeated Scan presses preserve the current scan, and the previous AP list remains visible until a new scan completes. Password entry pauses middleware polling and refuses USB scan requests that would change the screen. Passwords start hidden; **Tab or held B** shows/hides them. Diagnostic screenshots always mask passwords.
+AP scans run only when requested, with an explicit scanning/result/error status. Repeated Scan presses preserve the current scan, and the previous AP list remains visible until a new scan completes. Password entry pauses middleware polling and refuses USB scan requests that would change the screen. Passwords start hidden; **Tab or held B** shows/hides them. Diagnostic screenshots always mask passwords. Up to eight successfully joined networks are remembered; Forget removes them all. Existing single-network credentials are migrated when that network next connects. Failed attempts never overwrite saved credentials.
+
+Connection progress shows **Wi-Fi attempt → Wi-Fi success → middleware attempt → middleware success**. Wi-Fi success requires real association and IP assignment; middleware success requires a verified authenticated response for this board/controller. The success screen remains for one second, then opens session content. A Wi-Fi failure returns to the password/connection screen with the current input retained and hidden; a middleware failure opens the Find middleware menu for an explicit retry.
+
+Settings includes **Display language** (English / 한국어) and **Input settings** (English / Korean 2-set). Tab or held B in Prompt Edit changes input only. Wi-Fi SSIDs/passwords always use literal keyboard characters. UI messages live in `firmware/i18n.h` and `src/i18n.mjs`; protocol keys, paths, native model IDs, and original native text are not translated.
 
 ## Plugin and verification
 
@@ -95,10 +111,29 @@ python scripts/check-navigation.py --port COM7 --screens artifacts/navigation-sc
 python scripts/check-navigation.py --port COM7 --screens artifacts/navigation-screens --input-screens
 # Explicit disposable real editor/cursor checks; refuses an existing draft:
 python scripts/check-editor.py --port COM7
+# Actual independent display/input settings and bilingual framebuffer captures:
+python scripts/check-settings.py --port COM7 --screens artifacts/localized-screens
+# Actual saved-network association, authenticated response, and one-second hold:
+python scripts/check-settings.py --port COM7 --connect
+# Actual saved AP/password prefill, without printing credentials:
+python scripts/check-settings.py --port COM7 --saved-password
+# Real radio attempt to an unregistered disposable SSID; restores saved network:
+python scripts/check-settings.py --port COM7 --wifi-failure
 ```
 
-The native IME test compiles the exact header used by firmware. `device_qa.py` reads the real firmware state and its on-device rendered framebuffer; it does not dispatch a harness command. Screenshot evidence does not establish that a person physically pressed the buttons or that Wi-Fi credentials were entered correctly.
+The native IME/navigation/connection tests compile the exact headers used by firmware, including observed connection transitions and deadlines; no timer fabricates success. `device_qa.py` reads the real firmware state and its on-device rendered framebuffer; it does not dispatch a harness command. Screenshot evidence does not establish that a person physically pressed the buttons or that Wi-Fi credentials were entered correctly.
 
 `node scripts/check-live.mjs ABSOLUTE_MIDDLEWARE_DIRECTORY PRIVATE_GATEWAY_IP` verifies the real hardware worker, core registry compatibility, signed discovery and request/response, dynamic session/model/effort reads, and replay rejection. It changes the device's local selection while checking menus, and sends **zero native harness prompts**.
 
 License: Apache-2.0. M5Unified, M5GFX, ArduinoJson and ESP32 framework retain their upstream licenses.
+
+To regenerate footer icons after an intentional source update:
+
+```powershell
+npm install --prefix artifacts/icon-builder --no-audit --no-fund @resvg/resvg-js@2.6.2
+$icons = Get-ChildItem assets/footer/*.svg | ForEach-Object { $_.FullName }
+node scripts/rasterize-icons.mjs $icons
+python scripts/build-footer-icons.py
+```
+
+The renderer is a build-only tool; firmware and the gateway have no runtime icon dependency. Icon licenses are preserved in `assets/footer/LICENSE-Lucide` and `assets/footer/LICENSE-MDI`, in addition to the root Apache-2.0 license.

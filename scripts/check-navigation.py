@@ -14,6 +14,7 @@ parser=argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--port',required=True)
 parser.add_argument('--screens',type=Path)
 parser.add_argument('--capture-names',nargs='+',help='Capture only named screens; all navigation checks still run')
+parser.add_argument('--display-language',choices=['en','ko'],help='Use an actual display locale for captures; restore it afterward')
 parser.add_argument('--input-screens',action='store_true',help='Explicit disposable English/Korean rendering QA; refuses an existing draft')
 args=parser.parse_args()
 port=serial.Serial();port.port=args.port;port.baudrate=115200;port.timeout=.15;port.dtr=port.rts=False;port.open()
@@ -70,6 +71,9 @@ try:
     while not (initial.get('view') or {}).get('connected'):
         if time.monotonic()>deadline:raise RuntimeError('Actual middleware is unavailable')
         time.sleep(.2);initial=inspect()
+    if args.display_language:
+        send('settings-check',action='display',korean=args.display_language=='ko');time.sleep(.2)
+        changed=inspect();assert changed['displayLanguage']==args.display_language
     state=action('content');check(state,page=0,focus='content')
     assert state['view'].get('connected'),'Actual middleware is unavailable'
     state=action('end');assert state['cursor']==max(0,state['view']['contentTotal']-11)
@@ -131,4 +135,10 @@ try:
     print(json.dumps({'actualSessionCount':total,'actualHarnessCount':harnesses,
                       'focusHierarchy':True,'homeEndPaging':True,'fontLayout':True,
                       'nativePromptsSent':0}),flush=True)
-finally:port.close()
+finally:
+    if args.display_language and 'initial' in globals():
+        current=inspect()
+        if not current['draft'] and current['page'] not in (2,3,5):
+            send('settings-check',action='display',korean=initial['displayLanguage']=='ko')
+            time.sleep(.2)
+    port.close()

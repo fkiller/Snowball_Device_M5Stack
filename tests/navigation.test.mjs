@@ -2,6 +2,27 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {DeviceNavigation,windowStart,harnessAbbreviation,wrapLines,sessionText,latestSession} from '../src/navigation.mjs';
 const snapshot={accessMode:'local-no-auth',hostname:'REAL-PC',realSessions:{'snowball.codex':{project:Array.from({length:30},(_,i)=>({id:'n'+i,sessionKey:'k'+i,title:'Session '+i,ownerId:'real-owner',revision:7,readOnly:false}))},'snowball.antigravity':{other:[{id:'agy',sessionKey:'agy-key',title:'AGY session',readOnly:true}]}},commands:[],turnsStore:{k14:[{role:'user',text:'native question',agentResponse:'실제 응답\n'+('line\n'.repeat(100))}]}};
+test('display locale remains controller-local and preserves native text and targets',async()=>{
+  const a=new DeviceNavigation({api:async()=>snapshot,saved:{sessionKey:'k14'}});
+  const b=new DeviceNavigation({api:async()=>snapshot,saved:{sessionKey:'k14'}});
+  const ko=await a.action({op:'read',index:0,locale:'ko'});
+  assert.equal(ko.message,'준비됨');assert.equal(ko.contentLines[0],'사용자');
+  assert.ok(ko.contentLines.includes('native question'));assert.ok(ko.contentLines.includes('실제 응답'));
+  assert.equal(ko.session,'Session 14');assert.equal(ko.sessionKey,'k14');
+  const en=await b.action({op:'poll'});assert.equal(en.message,'Ready');assert.equal(en.contentLines[0],'USER');
+  a.persist();assert.equal(a.saved.locale,'ko');
+  assert.equal((await a.action({op:'poll',locale:'en'})).contentLines[0],'USER');
+  await assert.rejects(a.action({op:'poll',locale:'other'}),/invalid_locale/);
+});
+test('capability progress is structural and follows the current display locale',async()=>{
+  let finish;
+  const a=new DeviceNavigation({api:async route=>route==='/v1/harness/models'?new Promise(resolve=>finish=resolve):snapshot,saved:{sessionKey:'k14'}});
+  let view=await a.action({op:'models',locale:'en'});assert.equal(view.catalogPending,true);
+  view=await a.action({op:'poll',locale:'ko'});assert.equal(view.catalogPending,true);assert.equal(view.message,'네이티브 기능 검색 중...');
+  finish({models:[]});await new Promise(resolve=>setImmediate(resolve));
+  view=await a.action({op:'poll'});assert.equal(view.catalogPending,false);assert.equal(view.message,'보고된 네이티브 기능 없음');
+  view=await a.action({op:'poll',locale:'en'});assert.equal(view.message,'No native capabilities reported');
+});
 test('two devices retain independent selection, theme, model and scroll across own restart',async()=>{
   let saved;const make=options=>new DeviceNavigation({api:async()=>snapshot,machineName:'REAL-PC',...options});
   const a=make({saved:{sessionKey:'k14',model:'native-choice',effort:'native-effort'},save:value=>saved=structuredClone(value)}),b=make({saved:{sessionKey:'k0'}});
