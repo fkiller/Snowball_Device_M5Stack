@@ -17,6 +17,7 @@ parser.add_argument('--connect',action='store_true',help='Explicitly reconnect t
 parser.add_argument('--expect-middleware-failure',action='store_true',help='Observe real unavailable gateway; no fake responses')
 parser.add_argument('--capture-connection',action='store_true',help='Capture actual connecting and success frames (capture can extend hold)')
 parser.add_argument('--saved-password',action='store_true',help='Scan and select the actual last saved AP; never reads its password')
+parser.add_argument('--menu-return',action='store_true',help='Exercise actual nested menu parents; never connects an AP or sends a prompt')
 parser.add_argument('--wifi-failure',action='store_true',help='Attempt a random unregistered SSID using the real radio, then restore saved Wi-Fi')
 args=parser.parse_args()
 port=serial.Serial();port.port=args.port;port.baudrate=115200;port.timeout=.05;port.dtr=port.rts=False;port.open()
@@ -46,6 +47,16 @@ def capture(locale,name,phase=None):
     wait('screen_end');path=args.screens/locale/(name+'.png');path.parent.mkdir(parents=True,exist_ok=True)
     decode_framebuffer(rows,begin['format']).save(path)
     print('Actual framebuffer: '+str(path),flush=True)
+    if phase==3:
+        # Raw UART transfer can outlast the LAN receipt deadline. Observe a
+        # fresh authenticated reconnect before another menu action, never
+        # replaying the connection or a selection.
+        deadline=time.monotonic()+20
+        while time.monotonic()<deadline:
+            live=status()
+            if live['middleware'] and live['responseAgeMs']<4000:break
+            time.sleep(.2)
+        else:raise RuntimeError('No fresh authenticated response after success capture')
     return begin
 def settled():
     deadline=time.monotonic()+12
@@ -98,7 +109,33 @@ if initial['draft'] or initial['page'] in (2,3,5):port.close();raise RuntimeErro
 try:
     if args.display_language:
         setting('display',korean=args.display_language=='ko');settled()
-    if args.wifi_failure:
+    if args.menu_return:
+        def menu(action):
+            send('nav-check',action=action);time.sleep(.2);return inspect()
+        setting('settings');menu('home')
+        if args.expect_middleware_failure:
+            menu('down');menu('select')
+            phases=set();deadline=time.monotonic()+25
+            while time.monotonic()<deadline:
+                state=status();phases.add(state['phase'])
+                if state['page']==11:break
+                time.sleep(.2)
+            assert state['page']==11 and state['wifi'] and not state['middleware'] and 2 in phases
+            menu('home');menu('down');menu('select')
+        else:menu('select')
+        scan=wait('wifi-networks',16);assert scan['ok'] and scan['total']>0
+        chosen=min(2,len(scan['networks'])-1);menu('home')
+        for _ in range(chosen):menu('down')
+        state=menu('select');assert state['page']==5
+        send('wifi-key-check',key=0xb4);time.sleep(.2);state=inspect()
+        assert state['page']==4 and state['cursor']==chosen
+        state=menu('left')
+        if args.expect_middleware_failure:
+            assert state['page']==11 and state['cursor']==1
+            state=menu('left');assert state['page']==8 and state['cursor']==1
+        else:assert state['page']==8 and state['cursor']==0
+        print(json.dumps({'actualApParentIndexRestored':chosen,'middlewareParentRestored':args.expect_middleware_failure,'rootMenuIndexRestored':state['cursor'],'nativePromptsSent':0}),flush=True)
+    elif args.wifi_failure:
         settled();send('wifi-provision',ssid='Snowball-QA-'+secrets.token_hex(6),password=secrets.token_hex(8))
         phases=set();deadline=time.monotonic()+25
         while time.monotonic()<deadline:
@@ -131,8 +168,18 @@ try:
             state=setting('input-menu');assert state['layoutOk'];capture(locale,'input-settings')
             for name,korean,keys,expected in [('english-input',False,'Hello Snowball','Hello Snowball'),('korean-input',True,'dkssudgktpdy gksrmf','안녕하세요 한글')]:
                 state=setting('input',korean=korean);assert state['displayLanguage']==locale and state['korean']==korean
-                settled();send('ime-check',korean=korean,keys=keys);time.sleep(.15);state=inspect()
-                assert state['draft']==expected and state['page']==2 and state['layoutOk']
+                deadline=time.monotonic()+15
+                while time.monotonic()<deadline:
+                    state=settled()
+                    if state['page']==2 and state['draft']==expected:break
+                    if state['draft'] or state['page'] in (2,3,5):
+                        raise RuntimeError('Human input/editor change; IME QA stopped')
+                    # Admission can lose a race to periodic polling. The
+                    # diagnostic accepts only an empty draft, so retrying this
+                    # disposable opener cannot append twice or send a prompt.
+                    send('ime-check',korean=korean,keys=keys);time.sleep(.2)
+                else:raise RuntimeError('Disposable IME input was not admitted')
+                assert state['layoutOk']
                 capture(locale,name)
                 state=settled();assert state['draft']==expected
                 clearDisposable(expected)

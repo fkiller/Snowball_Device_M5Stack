@@ -29,16 +29,6 @@
     "url": "https://raw.githubusercontent.com/lucide-icons/lucide/500620a2e8123f8d1db191538886dc0c223f69a9/icons/file-down.svg",
     "sha256": "ef04b1758104a3e8231f2926ddaad2101205c14e4a842d238946f5dee7fcdb29"
   },
-  "Home": {
-    "file": "lucide-chevrons-left.svg",
-    "url": "https://raw.githubusercontent.com/lucide-icons/lucide/500620a2e8123f8d1db191538886dc0c223f69a9/icons/chevrons-left.svg",
-    "sha256": "ec966bce841337a305fc7fbc0dab04c650dc9fb7f313d78645ea33378bef06e7"
-  },
-  "End": {
-    "file": "lucide-chevrons-right.svg",
-    "url": "https://raw.githubusercontent.com/lucide-icons/lucide/500620a2e8123f8d1db191538886dc0c223f69a9/icons/chevrons-right.svg",
-    "sha256": "3491f9fe180bf75a058d480f32a0d26ff6a97c6c9a70315c77df7c6b75329d91"
-  },
   "Select": {
     "file": "lucide-check.svg",
     "url": "https://raw.githubusercontent.com/lucide-icons/lucide/500620a2e8123f8d1db191538886dc0c223f69a9/icons/check.svg",

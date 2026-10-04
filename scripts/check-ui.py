@@ -33,10 +33,32 @@ def settled():
         if not state['pending'] and not state['view'].get('catalogPending'):return state
         time.sleep(.15)
     raise RuntimeError('Actual native operation did not settle')
-def action(kind,name,**fields):send(kind,action=name,**fields);time.sleep(.25);return settled()
+def action(kind,name,**fields):
+    settled();send(kind,action=name,**fields);time.sleep(.25);return settled()
 def nav(name):return action('nav-check',name)
 def editor(name,**fields):return action('editor-check',name,**fields)
 def setting(name,**fields):return action('settings-check',name,**fields)
+def fnLayer(enabled,keyboard=False):
+    state=editor('key',key=0xba) if keyboard else editor('fn')
+    deadline=time.monotonic()+10
+    while state['page']!=2 or state['fnMenu']!=enabled:
+        if time.monotonic()>deadline:raise RuntimeError('Actual Fn layer did not settle')
+        # Observe only; never send a second toggle on an ambiguous receipt.
+        time.sleep(.2);state=settled()
+    return state
+def openPopup(mode,button):
+    deadline=time.monotonic()+15
+    while time.monotonic()<deadline:
+        before=settled()
+        if before['page']!=2 or not before['fnMenu'] or before['draft']!=draft:
+            raise RuntimeError('Unexpected editor state; popup QA stopped')
+        state=editor(mode)
+        if state['page']==14 and state['popupButton']==button:return state
+        # A periodic poll can begin between observation and the click. Retry
+        # only this read-only catalog opener; never a selection or dispatch.
+        time.sleep(.2)
+    raise RuntimeError('Actual popup opener did not become available')
+
 def clearDisposable(expected):
     deadline=time.monotonic()+12
     while time.monotonic()<deadline:
@@ -50,6 +72,7 @@ def capture(directory,name):
     if directory is None:return
     directory.mkdir(parents=True,exist_ok=True)
     send('screenshot',raw=True);begin=wait('screen_begin');rows={}
+    assert begin['displayLanguage']==directory.name,'Framebuffer locale must match gallery directory'
     for _ in range(240):
         row=wait('screen_row');rows[row['y']]=base64.b64decode(row['data'],validate=True)
     wait('screen_end');assert set(rows)==set(range(240))
@@ -83,27 +106,45 @@ try:
         if locale=='ko':nav('down')
         state=nav('select');assert state['page']==8 and state['cursor']==3 and state['displayLanguage']==locale
         assert state['korean']==initial['korean']
+        state=setting('display-menu');capture(args.screens/locale if args.screens else None,'display-language')
+        state=nav('left');assert state['page']==8 and state['cursor']==3
+        for korean in [False,True]:
+            setting('input-menu');nav('home')
+            if korean:nav('down')
+            capture(args.screens/locale if args.screens else None,'input-settings') if korean else None
+            state=nav('select');assert state['page']==8 and state['cursor']==4 and state['korean']==korean
+        setting('input',korean=initial['korean'])
+        setting('input-menu');state=nav('left');assert state['page']==8 and state['cursor']==4
+        capture(args.screens/locale if args.screens else None,'settings')
         state=nav('home');state=nav('up');assert state['page']==8 and state['focus']=='top' and state['crumb']==0
         capture(args.screens/locale if args.screens else None,'menu-focus')
-        state=nav('select');assert state['page']==8 and state['focus']=='content'
-        capture(args.screens/locale if args.screens else None,'settings')
+        state=nav('select');assert state['page']==8 and state['focus']=='content' and state['cursor']==4
+        nav('end');state=nav('select');assert state['page']==7
+        state=nav('select');assert state['page']==8 and state['cursor']==5
+        nav('select');state=nav('left');assert state['page']==8 and state['cursor']==5
+        # Legacy action pickers also return to the invoking action row.
+        nav('content');nav('actions');nav('down');state=nav('select')
+        assert state['page']==1 and state['view']['menuKind']=='models'
+        state=nav('left');assert state['page']==9 and state['cursor']==1
+        nav('down');state=nav('select');assert state['page']==1 and state['view']['menuKind']=='efforts'
+        state=nav('left');assert state['page']==9 and state['cursor']==2
         state=nav('content');state=nav('end');assert state['cursor']==max(0,state['view']['contentTotal']-12)
         deadline=time.monotonic()+10
         while state['view']['contentOffset']!=state['cursor']:
             if time.monotonic()>deadline:raise RuntimeError('Displayed content offset did not converge')
             time.sleep(.2);state=settled()
-        capture(Path('artifacts/fn-ui')/locale,'content-end')
-        nav('home');capture(Path('artifacts/fn-ui')/locale,'content-home')
+        capture(Path('artifacts/fn-ui')/locale if args.screens else None,'content-end')
+        nav('home');capture(Path('artifacts/fn-ui')/locale if args.screens else None,'content-home')
         for attempt in range(30):
             state=settled();send('ime-check',korean=False,keys=draft);time.sleep(.2);state=inspect()
             if state['page']==2:break
         assert state['page']==2 and state['draft']==draft
-        state=editor('key',key=0xba);assert state['fnMenu'] and state['draft']==draft
+        state=fnLayer(True,keyboard=True);assert state['draft']==draft
         capture(args.screens/locale if args.screens else None,'fn-controls')
-        state=editor('key',key=0xba);assert not state['fnMenu'] and state['page']==2
+        state=fnLayer(False,keyboard=True)
         for mode,button in [('model',0),('effort',1),('access',2)]:
-            state=editor('fn');assert state['fnMenu']
-            state=editor(mode);assert state['page']==14 and state['popupButton']==button
+            state=fnLayer(True)
+            state=openPopup(mode,button)
             assert state['layoutOk'] and state['draft']==draft
             kind={'model':'models','effort':'efforts','access':'access'}[mode]
             assert state['view']['menuKind']==kind
@@ -111,7 +152,7 @@ try:
             state=editor('end');assert state['cursor']==max(0,state['view']['menuTotal']-1)
             state=editor('home');assert state['cursor']==0
             capture(args.screens/locale if args.screens else None,'fn-'+mode)
-            state=editor('fn');assert state['page']==2 and state['draft']==draft and not state['fnMenu']
+            state=fnLayer(False);assert state['draft']==draft
         capture(args.screens/locale if args.screens else None,'english-input')
         state=settled();assert state['draft']==draft
         clearDisposable(draft)
@@ -119,7 +160,7 @@ try:
     assert [c['commandId'] for c in before['commands']]==[c['commandId'] for c in after['commands']]
     state=api('/v1/controller');assert state['selection']==initialController['selection']
     for key in ['model','effort','access']:assert state['preferences'].get(key,'')==initialController['preferences'].get(key,'')
-    print(json.dumps({'displayReturnsToMenu':True,'menuContentPreserved':True,'actualReaderRows':12,'fnCancelPreservesDraft':True,'actualPopupGeometry':True,'nativePromptsSent':0}),flush=True)
+    print(json.dumps({'displayReturnsToMenu':True,'inputReturnsToMenu':True,'leftRestoresParentRow':True,'infoAndActionParents':True,'menuContentPreserved':True,'actualReaderRows':12,'fnCancelPreservesDraft':True,'actualPopupGeometry':True,'nativePromptsSent':0}),flush=True)
 finally:
     current=inspect()
     if not current['draft'] and current['page'] not in (2,3,5,14):

@@ -25,6 +25,17 @@ int main(){
   static_assert(2+2*BoxStride+BoxWidth<=ScreenWidth,"ABC boxes overflow");
   static_assert(BottomY+BottomHeight==ScreenHeight,"Footer exceeds LCD");
   static_assert(ContentTextY+ContentRows*ContentLineHeight<BottomY,"Content overlaps footer");
+  MenuHistory history;Navigation settings;settings.list(6,4,0);
+  assert(history.remember(8,settings));Navigation language;language.list(2,1,0);
+  int parent=-1;assert(history.restore(13,parent,language));assert(parent==8&&language.index==4&&language.focus==Focus::Content);
+  settings.list(6,0,0);history.remember(8,settings);Navigation aps;aps.list(27,19,0);history.remember(4,aps);
+  Navigation password;password.list(3,2,0);assert(history.restore(5,parent,password));assert(parent==4&&password.index==19&&password.start()==16);
+  assert(history.restore(4,parent,password));assert(parent==8&&password.index==0);
+  // A repeated middleware/Wi-Fi failure path retires old descendants.
+  history.remember(8,settings);Navigation find;find.list(3,1,0);history.remember(11,find);history.remember(4,aps);
+  find.index=0;history.remember(11,find);assert(history.restore(10,parent,password)&&parent==11&&password.index==0);
+  assert(history.restore(11,parent,password)&&parent==8);assert(!history.restore(8,parent,password));
+  history.remember(8,settings);history.clear();assert(!history.restore(13,parent,password));
   for(int total:{0,1,12,13,100,100000}){
     int maximum=std::max(0,total-ContentRows);auto first=scrollbar(total,ContentRows,0,175),last=scrollbar(total,ContentRows,maximum,175);
     assert(first.top==0&&first.height>0&&first.height<=175);

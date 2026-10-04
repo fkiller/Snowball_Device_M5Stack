@@ -68,7 +68,9 @@ try:
     initial=inspect()
     if initial['page'] in (2,3,5):raise RuntimeError('Device is editing; no QA actions were sent.')
     deadline=time.monotonic()+20
-    while not (initial.get('view') or {}).get('connected'):
+    while True:
+        send('connection-inspect');live=wait('connection-state')
+        if live['middleware'] and live['responseAgeMs']<4000:break
         if time.monotonic()>deadline:raise RuntimeError('Actual middleware is unavailable')
         time.sleep(.2);initial=inspect()
     if args.display_language:

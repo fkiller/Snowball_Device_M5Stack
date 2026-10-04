@@ -40,6 +40,24 @@ struct Navigation {
   }
   void edge(bool end){if(focus==Focus::Top)crumb=end?4:0;else index=end?maximum():0;}
 };
+// Local menu parents retain the exact selected row and focus. Re-entering a
+// page retires its descendants, so connection retry paths cannot grow a loop.
+class MenuHistory {
+  struct Frame {int page;Navigation navigation;};
+  Frame frames[8];int depth=0;
+public:
+  void clear(){depth=0;}
+  bool remember(int page,const Navigation& navigation){
+    for(int i=0;i<depth;i++)if(frames[i].page==page){depth=i;break;}
+    if(depth==8)return false;
+    frames[depth++]={page,navigation};return true;
+  }
+  bool restore(int current,int& page,Navigation& navigation){
+    while(depth){const auto& frame=frames[--depth];if(frame.page==current)continue;
+      page=frame.page;navigation=frame.navigation;return true;}
+    return false;
+  }
+};
 constexpr int ScreenWidth=320,ScreenHeight=240,TopHeight=30,BottomY=213,BottomHeight=27;
 constexpr int BoxWidth=104,BoxStride=106;
 constexpr int ContentRows=12,ContentLineHeight=14,ContentTextY=35;
