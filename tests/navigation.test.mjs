@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {DeviceNavigation,windowStart,harnessAbbreviation,wrapLines,sessionText,latestSession} from '../src/navigation.mjs';
+import {DeviceNavigation,windowStart,harnessAbbreviation,wrapLines,sessionText,latestSession,CONTENT_ROWS} from '../src/navigation.mjs';
 const snapshot={accessMode:'local-no-auth',hostname:'REAL-PC',realSessions:{'snowball.codex':{project:Array.from({length:30},(_,i)=>({id:'n'+i,sessionKey:'k'+i,title:'Session '+i,ownerId:'real-owner',revision:7,readOnly:false}))},'snowball.antigravity':{other:[{id:'agy',sessionKey:'agy-key',title:'AGY session',readOnly:true}]}},commands:[],turnsStore:{k14:[{role:'user',text:'native question',agentResponse:'실제 응답\n'+('line\n'.repeat(100))}]}};
 test('display locale remains controller-local and preserves native text and targets',async()=>{
   const a=new DeviceNavigation({api:async()=>snapshot,saved:{sessionKey:'k14'}});
@@ -50,9 +50,31 @@ test('session list preserves the selected native destination and global Home/End
 test('full native content supports bounded pages without presenting previews as conversations',async()=>{
   const nav=new DeviceNavigation({api:async()=>snapshot,machineName:'REAL-PC',saved:{sessionKey:'k14'}});
   let v=await nav.action({op:'read',index:0});assert.equal(v.contentLines[0],'USER');assert.ok(v.contentTotal>100);
-  v=await nav.action({op:'read',index:100000});assert.equal(v.contentOffset,v.contentTotal-11);assert.equal(v.contentLines.length,11);
+  v=await nav.action({op:'read',index:100000});assert.equal(v.contentOffset,v.contentTotal-CONTENT_ROWS);assert.equal(v.contentLines.length,CONTENT_ROWS);
   assert.match(sessionText({}, {preview:'real summary'}),/^PREVIEW/);
   assert.deepEqual(wrapLines('한글 English',8),['한글 Eng','lish']);
+});
+
+test('execution popups select actual model-specific effort and independent native access without dispatch',async()=>{
+  let sent,commands=0;
+  const s=structuredClone(snapshot);Object.assign(s.realSessions['snowball.codex'].project[14],{model:'observed-a',effort:'high',access:'on-request'});
+  const api=async(route,body)=>{
+    if(route==='/v1/harness/models')return {models:[{model:'observed-a',efforts:['low','high']},{model:'observed-b',efforts:['medium']}]};
+    if(route==='/v1/harness/access')return {access:['on-request','untrusted']};
+    if(route==='/v1/commands'){commands++;sent=body;return {};}
+    return s;
+  };
+  const a=new DeviceNavigation({api,saved:{sessionKey:'k14'}}),b=new DeviceNavigation({api,saved:{sessionKey:'k14'}});
+  const ready=async op=>{await a.action({op});await new Promise(resolve=>setImmediate(resolve));return a.action({op:'poll'});};
+  let v=await ready('efforts');assert.deepEqual(v.items,['low','high']);assert.equal(v.menuIndex,1);
+  await a.action({op:'back'});assert.equal(a.effort,null);assert.equal(commands,0);
+  await ready('models');await a.action({op:'select',index:1});assert.equal(a.model,'observed-b');assert.equal(a.effort,null);
+  v=await ready('efforts');assert.deepEqual(v.items,['medium']);await a.action({op:'select',index:0});
+  v=await ready('access');assert.deepEqual(v.items,['on-request','untrusted']);await a.action({op:'select',index:1});
+  assert.equal(commands,0);a.persist();assert.equal(a.saved.access,'untrusted');
+  const other=await b.action({op:'poll'});assert.equal(other.access,'on-request');assert.equal(other.model,'observed-a');
+  await a.action({op:'send',commandId:'b'.repeat(32),text:'test dispatch boundary'});
+  assert.equal(commands,1);assert.deepEqual(sent.payload,{text:'test dispatch boundary',model:'observed-b',effort:'medium',access:'untrusted'});
 });
 test('changing harness cancels a pending model result and does not send a native prompt',async()=>{
   let finish,commands=0;const api=async route=>{if(route==='/v1/harness/models')return new Promise(r=>finish=r);if(route==='/v1/commands')commands++;return snapshot;};

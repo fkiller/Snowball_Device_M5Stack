@@ -24,5 +24,14 @@ int main(){
   ButtonGesture rollover;rollover.update(0xffffff00,true);assert(rollover.update(0x100,true)==Gesture::Hold);
   static_assert(2+2*BoxStride+BoxWidth<=ScreenWidth,"ABC boxes overflow");
   static_assert(BottomY+BottomHeight==ScreenHeight,"Footer exceeds LCD");
+  static_assert(ContentTextY+ContentRows*ContentLineHeight<BottomY,"Content overlaps footer");
+  for(int total:{0,1,12,13,100,100000}){
+    int maximum=std::max(0,total-ContentRows);auto first=scrollbar(total,ContentRows,0,175),last=scrollbar(total,ContentRows,maximum,175);
+    assert(first.top==0&&first.height>0&&first.height<=175);
+    assert(last.top+last.height==175);
+    int previous=0;for(int offset=0;offset<=maximum;offset++){auto bar=scrollbar(total,ContentRows,offset,175);assert(bar.top>=previous&&bar.top+bar.height<=175);previous=bar.top;}
+    assert(scrollbar(total,ContentRows,-1,175).top==0);
+    assert(scrollbar(total,ContentRows,1000000,175).top==last.top);
+  }
   std::cout<<"Navigation boundaries, anchors, paging, gesture admission and geometry passed\n";
 }

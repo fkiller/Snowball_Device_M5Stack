@@ -36,7 +36,7 @@ let serial,lastSeen=0,usbSeen=0,busy=false;
 let view={message:translate('en','unavailable'),items:[],connected:false};
 async function api(route,body) {
   if(!deviceId)throw Error('physical_device_required');
-  const res=await fetch(options.backend+route,{method:body===undefined?'GET':'POST',headers:{Origin:options.backend,'Content-Type':'application/json','x-snowball-controller':controllerIdForDevice(deviceId)},...(body===undefined?{}:{body:JSON.stringify(body)}),signal:AbortSignal.timeout(route==='/v1/harness/models'?45000:4000)});
+  const res=await fetch(options.backend+route,{method:body===undefined?'GET':'POST',headers:{Origin:options.backend,'Content-Type':'application/json','x-snowball-controller':controllerIdForDevice(deviceId)},...(body===undefined?{}:{body:JSON.stringify(body)}),signal:AbortSignal.timeout(['/v1/harness/models','/v1/harness/access'].includes(route)?45000:4000)});
   const data=await res.json();if(!res.ok)throw Error(data.error??`middleware_http_${res.status}`);return data;
 }
 const shorten=(value,n=64)=>Array.from(String(value??'')).slice(0,n).join('');
@@ -53,12 +53,12 @@ let ownedState,loadedIdentity,lastCheckpoint='';
 async function initializeController(){
   if(loadedIdentity===deviceId)return;
   ownedState=await api('/v1/controller');
-  if(ownedState.revision>0){const p=ownedState.preferences;controller.saved={sessionKey:ownedState.selection.sessionKey??null,harness:ownedState.selection.harnessPluginId??null,model:p.model||null,effort:p.effort||null,skin:p.skinId??'slate-dark',scroll:p.scroll??0};Object.assign(controller,{harness:controller.saved.harness,model:controller.saved.model,effort:controller.saved.effort,skin:controller.saved.skin,contentIndex:controller.saved.scroll});}
+  if(ownedState.revision>0){const p=ownedState.preferences;controller.saved={sessionKey:ownedState.selection.sessionKey??null,harness:ownedState.selection.harnessPluginId??null,model:p.model||null,effort:p.effort||null,access:p.access||null,skin:p.skinId??'slate-dark',scroll:p.scroll??0};Object.assign(controller,{harness:controller.saved.harness,model:controller.saved.model,effort:controller.saved.effort,access:controller.saved.access,skin:controller.saved.skin,contentIndex:controller.saved.scroll});}
   controller.initialized=false;loadedIdentity=deviceId;lastCheckpoint='';
 }
 async function checkpointController(){
   controller.persist();const n=controller.saved;
-  const patch={selection:{...(n.harness?{harnessPluginId:n.harness,harnessInstanceId:'default'}:{}),...(n.sessionKey?{sessionKey:n.sessionKey}:{})},preferences:{language:n.locale,model:n.model??'',effort:n.effort??'',skinId:n.skin,scroll:n.scroll}};
+  const patch={selection:{...(n.harness?{harnessPluginId:n.harness,harnessInstanceId:'default'}:{}),...(n.sessionKey?{sessionKey:n.sessionKey}:{})},preferences:{language:n.locale,model:n.model??'',effort:n.effort??'',access:n.access??'',skinId:n.skin,scroll:n.scroll}};
   const encoded=JSON.stringify(patch);if(encoded===lastCheckpoint)return;
   try{ownedState=await api('/v1/controller',{expectedRevision:ownedState.revision,patch});lastCheckpoint=encoded;}
   catch(error){if(error.message==='stale_controller_revision'){ownedState=await api('/v1/controller');throw Error('controller_state_changed');}throw error;}

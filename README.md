@@ -14,15 +14,21 @@ Hardware reference photo: © M5Stack, from the [official FACES Kit documentation
 | --- | --- | --- |
 | ![Actual English settings](assets/screenshots/en/settings.png) | ![Actual display language selector](assets/screenshots/en/display-language.png) | ![Actual input settings](assets/screenshots/en/input-settings.png) |
 
+![Menu breadcrumb focused while main Settings remains in Content](assets/screenshots/en/menu-focus.png)
+
 | English input | Korean input | Connection status |
 | --- | --- | --- |
 | ![Actual English input](assets/screenshots/en/english-input.png) | ![Actual Korean input with English UI](assets/screenshots/en/korean-input.png) | ![Actual authenticated connection](assets/screenshots/en/connected.png) |
+
+| Fn controls | Model popup | Effort popup | Access popup |
+| --- | --- | --- | --- |
+| ![Actual Fn controls](assets/screenshots/en/fn-controls.png) | ![Actual native models](assets/screenshots/en/fn-model.png) | ![Actual model-specific efforts](assets/screenshots/en/fn-effort.png) | ![Actual native access policies](assets/screenshots/en/fn-access.png) |
 
 ![Actual saved AP password prefilled and masked](assets/screenshots/en/saved-password.png)
 
 These native 320×240 framebuffers were captured from the real M5Stack 0.2.2 firmware on 2026-10-04. The [Korean documentation](README.ko.md) shows the same screens with Korean display text. **Display language and keyboard input are independent**: selecting English display keeps Korean input available, and selecting Korean display keeps English input available. Native session titles and content keep their original language. Diagnostic screenshots always mask Wi-Fi passwords, including when the LCD's Show option is enabled.
 
-The breadcrumb uses the harness's original color icon, the project name without brackets, and the session title; focusing a harness reveals its full name. The footer uses original [Lucide](https://lucide.dev/) action SVGs and [Pictogrammers Material Design](https://github.com/Templarian/MaterialDesign) tap/hold/double-tap SVGs, reduced with Lanczos and Floyd-Steinberg dithering to the RGB332 framebuffer. Source SVGs, pinned upstream URLs, hashes, and license notices are in `assets/footer`; generated pixels are in `firmware/footer_icons.h`. No icon downloads or conversions occur on the device.
+The breadcrumb uses the harness's original color icon, the project name without brackets, and the session title; focusing a harness reveals its full name. The footer uses original [Lucide](https://lucide.dev/) action SVGs and aligned dot / two-dot / minus markers for single press / double press / hold. The two-dot marker omits the middle circle from the upstream ellipsis. All assets use Lanczos scaling and Floyd-Steinberg dithering for the RGB332 framebuffer. Source SVGs, pinned upstream URLs, hashes, and license notices are in `assets/footer`; generated pixels are in `firmware/footer_icons.h`. No icon downloads or conversions occur on the device.
 
 Input text in the gallery was entered through the disposable USB IME diagnostic, which sends no harness prompt. Native transcripts are kept out of the gallery. Captures verify the actual firmware renderer; physical keypresses and a completed native harness turn remain unverified.
 
@@ -32,7 +38,7 @@ The plugin icons are reduced from the original Codex app icon in the installed o
 
 The system architecture and deployment verification are maintained only in [Snowball_Control/docs/ARCHITECTURE.md](https://github.com/fkiller/Snowball_Control/blob/main/docs/ARCHITECTURE.md).
 
-Version 0.2.2 requires the middleware's `/v1/controller` API and plugin presentation metadata. Each enrolled board restores its own session, model/effort, theme and scroll position; display and input languages persist separately on the board. The gateway checkpoints only this controller's display locale. With no valid saved session, it opens the real middleware's latest active session and derives its harness and project. Later activity on another controller does not replace an explicit selection. M5Stack navigation does not change MK20 or Supervisor tab selections.
+Version 0.2.2 requires the middleware's `/v1/controller` API and plugin presentation metadata. Each enrolled board restores its own session, model/effort/access choices, theme and scroll position; display and input languages persist separately on the board. The gateway checkpoints only this controller's display locale. With no valid saved session, it opens the real middleware's latest active session and derives its harness and project. Later activity on another controller does not replace an explicit selection. M5Stack navigation does not change MK20 or Supervisor tab selections.
 
 ## Build and upload
 
@@ -69,7 +75,7 @@ USB provisions a random device enrollment key. The key stays in `.local/pairing.
 | B | Select / Compose | Context action shown in the footer | Context action shown in the footer |
 | C | ↓ / right | PgDn | End |
 
-Session content is the default screen. Home moves to its first line; another ↑ enters the session breadcrumb. B opens the current project's session list, centered on the current session. Home then ↑ returns to content with the session breadcrumb focused. Move left through **session → project → harness → machine → menu**. Selecting project or harness opens its real source list; the menu opens Settings. The machine crumb appears only when focus reaches it or the menu icon. Lists use the same paging/Home/End controls. Machine discovery currently exposes the one real host observed by this loopback gateway.
+Session content is the default screen. Home moves to its first line; another ↑ enters the session breadcrumb. B opens the current project's session list, centered on the current session. Home then ↑ returns to content with the session breadcrumb focused. From Settings or a settings selector, moving above the first item focuses the menu icon while keeping the main Settings list in Content. Move left through **session → project → harness → machine → menu**. Selecting project or harness opens its real source list; the menu opens Settings. The machine crumb appears only when focus reaches it or the menu icon. Lists use the same paging/Home/End controls. Machine discovery currently exposes the one real host observed by this loopback gateway.
 
 In session content, B opens Prompt Edit, held B opens model/effort/refresh actions, and double B follows the latest lines. Moving down beyond the final content page or typing a keyboard key while reading also opens Prompt Edit; the first printable key becomes literal input. In lists, held B returns and double B opens session content.
 
@@ -83,13 +89,19 @@ At the start of the text, A/held A or keyboard Left returns to session content, 
 
 Tab switches **EN ↔ KO**; Esc returns, Backspace deletes at the cursor, and Ctrl+U clears the local draft. UTF-8 cursor movement and insertion preserve whole Korean characters; committing active composition permits middle editing. Shifted Latin keys select doubled Korean consonants/vowels. Keyboard navigation letters remain literal input while reading or editing. B or Enter executes the draft only for a real controllable native session. The draft clears only after the journal admits this device's matching command ID. Rejected or ambiguous delivery retains it and never automatically resends.
 
+Prompt Edit shows the selected **Model, Effort and Access**, plus **Fn+Z**. This stock FACES panel consumes bare Fn and Alt internally; [the original keyboard firmware](https://github.com/m5stack/FACES-Firmware/blob/master/KeyBoard.ino) emits `0xBA` for Fn+Z. Bare Fn therefore cannot control Core without reflashing the panel's separate ATmega328. Fn+Z opens the Model / Effort / Access footer; A, B or C opens a popup anchored to that button. A/C navigate, B selects, and Fn+Z again or Esc cancels without changing the choice or draft. Holding and double-clicking A/C retain paging and Home/End in the popup.
+
+Models and their efforts come from the native catalog. Access currently changes the Codex next-turn approval policy, discovered from the installed CLI's `TurnStartParams` schema via `/v1/harness/access`; it does not change the native filesystem sandbox. The native app-server can still reject policies under its configured requirements. Providers without a supported dispatch adapter return no Access choices. Selection remains controller-local and is sent only with an explicit prompt execution.
+
+Session content uses twelve visible lines, fills the area down to the footer, and has a proportional scrollbar based on the **displayed** content offset and actual total line count. The old controllability/model/status strip and fixed focus line are removed.
+
 Wi-Fi settings scan 2.4GHz networks, accept passwords, reuse the saved password when selecting a previously joined SSID, and save only a successfully joined network, support hidden SSIDs, and offer explicit Forget. Hold all three buttons for 2.5 seconds to reset device enrollment; reconnect USB to enroll again.
 
 AP scans run only when requested, with an explicit scanning/result/error status. Repeated Scan presses preserve the current scan, and the previous AP list remains visible until a new scan completes. Password entry pauses middleware polling and refuses USB scan requests that would change the screen. Passwords start hidden; **Tab or held B** shows/hides them. Diagnostic screenshots always mask passwords. Up to eight successfully joined networks are remembered; Forget removes them all. Existing single-network credentials are migrated when that network next connects. Failed attempts never overwrite saved credentials.
 
 Connection progress shows **Wi-Fi attempt → Wi-Fi success → middleware attempt → middleware success**. Wi-Fi success requires real association and IP assignment; middleware success requires a verified authenticated response for this board/controller. The success screen remains for one second, then opens session content. A Wi-Fi failure returns to the password/connection screen with the current input retained and hidden; a middleware failure opens the Find middleware menu for an explicit retry.
 
-Settings includes **Display language** (English / 한국어) and **Input settings** (English / Korean 2-set). Tab or held B in Prompt Edit changes input only. Wi-Fi SSIDs/passwords always use literal keyboard characters. UI messages live in `firmware/i18n.h` and `src/i18n.mjs`; protocol keys, paths, native model IDs, and original native text are not translated.
+Selecting a display language returns to Settings with its language row selected. Settings includes **Display language** (English / 한국어) and **Input settings** (English / Korean 2-set). Tab or held B in Prompt Edit changes input only. Wi-Fi SSIDs/passwords always use literal keyboard characters. UI messages live in `firmware/i18n.h` and `src/i18n.mjs`; protocol keys, paths, native model IDs, and original native text are not translated.
 
 ## Plugin and verification
 
@@ -111,6 +123,8 @@ python scripts/check-navigation.py --port COM7 --screens artifacts/navigation-sc
 python scripts/check-navigation.py --port COM7 --screens artifacts/navigation-screens --input-screens
 # Explicit disposable real editor/cursor checks; refuses an existing draft:
 python scripts/check-editor.py --port COM7
+# Actual menu return, 12-line scroll, Fn cancellation and native popup captures:
+python scripts/check-ui.py --port COM7 --screens artifacts/ui-screens
 # Actual independent display/input settings and bilingual framebuffer captures:
 python scripts/check-settings.py --port COM7 --screens artifacts/localized-screens
 # Actual saved-network association, authenticated response, and one-second hold:
@@ -136,4 +150,4 @@ node scripts/rasterize-icons.mjs $icons
 python scripts/build-footer-icons.py
 ```
 
-The renderer is a build-only tool; firmware and the gateway have no runtime icon dependency. Icon licenses are preserved in `assets/footer/LICENSE-Lucide` and `assets/footer/LICENSE-MDI`, in addition to the root Apache-2.0 license.
+The renderer is a build-only tool; firmware and the gateway have no runtime icon dependency. Icon licenses are preserved in `assets/footer/LICENSE-Lucide`, in addition to the root Apache-2.0 license.

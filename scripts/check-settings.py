@@ -11,6 +11,7 @@ from framebuffer import decode_framebuffer
 parser=argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--port',required=True)
 parser.add_argument('--screens',type=Path)
+parser.add_argument('--capture-names',nargs='+',help='Capture only named screens; all native checks still run')
 parser.add_argument('--display-language',choices=['en','ko'],help='Use this actual display locale during connection/password QA; restores the original')
 parser.add_argument('--connect',action='store_true',help='Explicitly reconnect the last successful network')
 parser.add_argument('--expect-middleware-failure',action='store_true',help='Observe real unavailable gateway; no fake responses')
@@ -36,7 +37,7 @@ def inspect():send('inspect');return wait('inspection')
 def status():send('connection-inspect');return wait('connection-state')
 def setting(action,**fields):send('settings-check',action=action,**fields);time.sleep(.15);return inspect()
 def capture(locale,name,phase=None):
-    if not args.screens:return
+    if not args.screens or (args.capture_names and name not in args.capture_names):return
     send('screenshot',raw=True,**({'connectionPhase':phase} if phase is not None else {}));begin=wait('screen_begin',30);rows={}
     assert begin['displayLanguage']==locale
     if phase is not None:assert begin['connectionPhase']==phase and begin['page']==10
@@ -53,6 +54,18 @@ def settled():
         if time.monotonic()>deadline:raise RuntimeError('Native request did not settle')
         time.sleep(.1);state=inspect()
     return state
+
+def clearDisposable(expected):
+    # Periodic authenticated polling can begin between inspection and clear.
+    # Retry only this local diagnostic draft and stop on any human edit.
+    deadline=time.monotonic()+12
+    while time.monotonic()<deadline:
+        state=inspect()
+        if state['page']==0 and not state['draft']:return state
+        if state['page']!=2 or state['draft']!=expected:raise RuntimeError('Human editor change; disposable cleanup stopped')
+        if not state['pending']:send('clear-check')
+        time.sleep(.15)
+    raise RuntimeError('Disposable draft could not be cleared')
 def connect():
     send('settings-check',action='connect-saved')
     phases=set();connectedAt=None;deadline=time.monotonic()+35;captureDone=False
@@ -122,7 +135,7 @@ try:
                 assert state['draft']==expected and state['page']==2 and state['layoutOk']
                 capture(locale,name)
                 state=settled();assert state['draft']==expected
-                send('clear-check');time.sleep(.15);settled()
+                clearDisposable(expected)
             setting('input',korean=originalInput)
         print(json.dumps({'displayInputIndependent':True,'nativeLocales':['en','ko'],'actualFramebuffers':bool(args.screens),'nativePromptsSent':0}),flush=True)
 finally:

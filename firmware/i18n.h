@@ -95,6 +95,8 @@ enum class Ui {
   Harness,
   Enrollment,
   WifiOffline,
+  Access,
+  NativePolicy,
 };
 inline const char* translate(Ui key,bool korean){
   static const char* const strings[][2]={
@@ -191,6 +193,8 @@ inline const char* translate(Ui key,bool korean){
     {"Harness","하네스"},
     {"Enrollment","기기 등록"},
     {"Offline","미연결"},
+    {"Access","접근 정책"},
+    {"Native policy","네이티브 정책"},
   };
   return strings[static_cast<size_t>(key)][korean?1:0];
 }

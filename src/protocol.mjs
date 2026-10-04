@@ -27,7 +27,7 @@ export function flattenSessions(snapshot) {
 }
 export function validateAction(action) {
   if(!action || typeof action!=='object' || Array.isArray(action)) throw Error('invalid_action');
-  if(!['poll','machines','harnesses','projects','sessions','browse','back','models','efforts','select','send','status','read','skin'].includes(action.op)) throw Error('unsupported_action');
+  if(!['poll','machines','harnesses','projects','sessions','browse','back','models','efforts','access','select','send','status','read','skin'].includes(action.op)) throw Error('unsupported_action');
   const allowed=['op','index','text','commandId','locale'];
   if(Object.keys(action).some(k=>!allowed.includes(k))) throw Error('invalid_action');
   if(action.locale!==undefined&&!['en','ko'].includes(action.locale))throw Error('invalid_locale');

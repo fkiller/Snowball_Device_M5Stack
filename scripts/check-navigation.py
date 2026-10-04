@@ -76,7 +76,7 @@ try:
         changed=inspect();assert changed['displayLanguage']==args.display_language
     state=action('content');check(state,page=0,focus='content')
     assert state['view'].get('connected'),'Actual middleware is unavailable'
-    state=action('end');assert state['cursor']==max(0,state['view']['contentTotal']-11)
+    state=action('end');assert state['cursor']==max(0,state['view']['contentTotal']-12)
     state=action('home');assert state['cursor']==0
     capture('session-content')
     state=action('home');state=action('up');check(state,page=0,focus='top',crumb=4)

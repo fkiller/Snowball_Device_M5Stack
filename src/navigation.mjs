@@ -2,7 +2,7 @@ import {createHash} from 'node:crypto';
 import {flattenSessions,validateAction} from './protocol.mjs';
 import {translate,validLocale} from './i18n.mjs';
 
-export const LIST_ROWS=7, CONTENT_ROWS=11;
+export const LIST_ROWS=7, CONTENT_ROWS=12;
 const projectKey=s=>String(s.cwd??s.project??'');
 export function activityTime(value){
   if(typeof value==='number'&&Number.isFinite(value))return value<1e11?value*1000:value;
@@ -49,7 +49,7 @@ export class DeviceNavigation {
   constructor({api,machineName,saved={},save=()=>{}}){
     this.locale=validLocale(saved.locale)?saved.locale:'en';
     Object.assign(this,{api,machineName,save,saved,selection:null,harness:saved.harness??null,model:saved.model??null,effort:saved.effort??null,
-      project:null,menu:[],menuKind:'',menuIndex:0,lastCommand:null,skin:saved.skin??'slate-dark',override:null,snapshotCache:null,
+      access:saved.access??null,project:null,menu:[],menuKind:'',menuIndex:0,lastCommand:null,skin:saved.skin??'slate-dark',override:null,snapshotCache:null,
       catalogPending:false,catalogGeneration:0,contentIndex:saved.scroll??0,contentLines:[],contentHash:''});
   }
   async state(){
@@ -62,14 +62,14 @@ export class DeviceNavigation {
       this.initialized=true;
       const restored=sessions.find(s=>s.sessionKey===this.saved.sessionKey);
       this.selection=restored??latestSession(snapshot,sessions);
-      if(!restored){this.model=this.effort=null;this.contentIndex=0;this.lastCommand=null;}
+      if(!restored){this.model=this.effort=this.access=null;this.contentIndex=0;this.lastCommand=null;}
       this.harness=this.selection?.pluginId??this.harness;
       this.project=this.selection?projectKey(this.selection):null;
     }
-    if(!this.selection&&!this.menuKind){this.selection=latestSession(snapshot,sessions);this.harness=this.selection?.pluginId??this.harness;this.project=this.selection?projectKey(this.selection):null;this.model=this.effort=null;this.contentIndex=0;this.lastCommand=null;}
+    if(!this.selection&&!this.menuKind){this.selection=latestSession(snapshot,sessions);this.harness=this.selection?.pluginId??this.harness;this.project=this.selection?projectKey(this.selection):null;this.model=this.effort=this.access=null;this.contentIndex=0;this.lastCommand=null;}
     return snapshot;
   }
-  persist(){this.saved={...this.saved,locale:this.locale,sessionKey:this.selection?.sessionKey??null,harness:this.harness,model:this.model,effort:this.effort,skin:this.skin,scroll:this.contentIndex};this.save(this.saved);}
+  persist(){this.saved={...this.saved,locale:this.locale,sessionKey:this.selection?.sessionKey??null,harness:this.harness,model:this.model,effort:this.effort,access:this.access,skin:this.skin,scroll:this.contentIndex};this.save(this.saved);}
   harnesses(s){
     return [...new Set([...Object.keys(s.realSessions??{}),...(s.connectedHarnesses??[]).map(h=>h.pluginId),
       ...flattenSessions(s).map(h=>h.pluginId)].filter(Boolean))].map(pluginId=>({label:s.harnessPresentations?.[pluginId]?.name??harnessAbbreviation(pluginId),pluginId}));
@@ -88,6 +88,7 @@ export class DeviceNavigation {
       sessionKey:current?.sessionKey??'',session:String(current?.title??current?.nativeSessionId??''),
       destination:String(current?.title??''),model:String(this.model??current?.model??translate(this.locale,'nativeDefault')).slice(0,40),
       effort:String(this.effort??current?.effort??translate(this.locale,'nativeDefault')).slice(0,24),readOnly:current?.readOnly??true,
+      access:String(this.access??current?.access??translate(this.locale,'nativePolicy')).slice(0,64),
       commandId:this.lastCommand??'',commandStatus:command?.status??(this.lastCommand?'unconfirmed':'idle'),message:this.localizedOverride()??(command?`${translate(this.locale,'command')}: ${command.status}`:translate(this.locale,'ready')),
       items:this.menu.slice(offset,offset+LIST_ROWS).map(it=>Array.from(it.label).slice(0,80).join('')),
       itemIcons:this.menu.slice(offset,offset+LIST_ROWS).map(it=>s.harnessPresentations?.[it.pluginId]?.icon??null),
@@ -116,7 +117,7 @@ export class DeviceNavigation {
   choose(s,targets){
     const previous=this.selection?.sessionKey;this.selection=targets.find(it=>it.sessionKey===previous)??latestSession(s,targets);
     this.project=this.selection?projectKey(this.selection):null;
-    if(previous!==this.selection?.sessionKey){this.model=this.effort=null;this.lastCommand=null;this.contentIndex=0;}
+    if(previous!==this.selection?.sessionKey){this.model=this.effort=this.access=null;this.lastCommand=null;this.contentIndex=0;}
   }
   async action(raw){
     const a=validateAction(raw);
@@ -145,24 +146,26 @@ export class DeviceNavigation {
         this.persist();this.listProjects(s);return this.sessionView(s);
       }
       if(this.menuKind==='projects'){const key=item.key;this.choose(s,flattenSessions(s).filter(it=>it.pluginId===this.harness&&projectKey(it)===key));this.project=key;this.persist();this.listSessions(s);return this.sessionView(s);}
-      if(this.menuKind==='sessions'){this.selection={...item.target};this.harness=this.selection.pluginId;this.project=projectKey(this.selection);this.model=this.effort=null;this.lastCommand=null;this.contentIndex=0;this.persist();}
+      if(this.menuKind==='sessions'){this.selection={...item.target};this.harness=this.selection.pluginId;this.project=projectKey(this.selection);this.model=this.effort=this.access=null;this.lastCommand=null;this.contentIndex=0;this.persist();}
       else if(this.menuKind==='models'){this.model=item.target.model;this.effort=null;}
       else if(this.menuKind==='efforts')this.effort=item.target;
+      else if(this.menuKind==='access')this.access=item.target;
       this.menu=[];this.menuKind='';this.override=null;return this.sessionView(s);
     }
     if(!this.selection)throw Error('native_session_unavailable');
-    if(a.op==='models'||a.op==='efforts'){
+    if(a.op==='models'||a.op==='efforts'||a.op==='access'){
       if(this.catalogPending)return this.sessionView(s);
       const targetSession={...this.selection},targetModel=this.model??this.selection.model,generation=++this.catalogGeneration;
       this.menuKind=a.op;this.menu=[];this.menuIndex=0;this.catalogPending=true;this.override={key:'discovering'};
       void (async()=>{
         try{
-          const response=await this.api('/v1/harness/models',{pluginId:targetSession.pluginId??targetSession.harness?.pluginId,instanceId:targetSession.harness?.instanceId??'default'});
+          const response=await this.api(a.op==='access'?'/v1/harness/access':'/v1/harness/models',{pluginId:targetSession.pluginId??targetSession.harness?.pluginId,instanceId:targetSession.harness?.instanceId??'default'});
           if(generation!==this.catalogGeneration||this.selection?.sessionKey!==targetSession.sessionKey)return;
           const models=response.models??[];
           if(a.op==='models')this.menu=models.slice(0,32).map(target=>({label:target.displayName??target.model,target}));
-          else this.menu=(models.find(m=>m.model===targetModel)?.efforts??[]).map(target=>({label:typeof target==='string'?target:target.id,target:typeof target==='string'?target:target.id}));
-          this.menuIndex=Math.max(0,this.menu.findIndex(it=>a.op==='models'?it.target.model===targetModel:it.target===this.effort));
+          else if(a.op==='efforts')this.menu=(models.find(m=>m.model===targetModel)?.efforts??[]).map(target=>({label:typeof target==='string'?target:target.id,target:typeof target==='string'?target:target.id}));
+          else this.menu=(response.access??[]).filter(target=>typeof target==='string').slice(0,32).map(target=>({label:target,target}));
+          this.menuIndex=Math.max(0,this.menu.findIndex(it=>a.op==='models'?it.target.model===targetModel:it.target===(a.op==='access'?(this.access??targetSession.access):(this.effort??targetSession.effort))));
           this.override=this.menu.length?null:{key:'noCapabilities'};
         }catch(error){if(generation===this.catalogGeneration)this.override={key:'discoveryFailed',suffix:error.message};}
         finally{if(generation===this.catalogGeneration)this.catalogPending=false;}
@@ -175,7 +178,7 @@ export class DeviceNavigation {
       const commandId='cmd_m5_'+a.commandId;
       if((s.commands??[]).some(c=>c.commandId===commandId)){this.lastCommand=commandId;return this.sessionView(s);}
       this.lastCommand=commandId;this.override=null;
-      try{await this.api('/v1/commands',{commandId,sessionKey:current.sessionKey,ownerId:current.ownerId,expectedRevision:current.revision,operation:'sessions.send',payload:{text:a.text,...(this.model?{model:this.model}:{}),...(this.effort?{effort:this.effort}:{})}});}
+      try{await this.api('/v1/commands',{commandId,sessionKey:current.sessionKey,ownerId:current.ownerId,expectedRevision:current.revision,operation:'sessions.send',payload:{text:a.text,...(this.model?{model:this.model}:{}),...(this.effort?{effort:this.effort}:{}),...(this.access?{access:this.access}:{})}});}
       catch(error){this.override={key:'deliveryUnknown',suffix:error.message,detail:'inspectStatus'};throw error;}
       return this.sessionView(await this.state());
     }

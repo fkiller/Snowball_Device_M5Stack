@@ -27,7 +27,9 @@ for name,item in manifest.items():
     assert hashlib.sha256(path.read_bytes()).hexdigest()==item['sha256'],name
     source=Image.open(str(path)+'.png').convert('RGBA')
     width,height=(11,20) if name.startswith('Gesture') else (16,16)
-    source=ImageOps.contain(source.crop(source.getchannel('A').getbbox()),(width-2,height-2),Image.Resampling.LANCZOS)
+    # Gesture markers retain the same SVG viewbox/scale/baseline, so a dot,
+    # two dots and a dash align without enlarging the single dot into a ball.
+    source=ImageOps.contain(source if name.startswith('Gesture') else source.crop(source.getchannel('A').getbbox()),(width,height if name.startswith('Gesture') else height-2),Image.Resampling.LANCZOS)
     icon=Image.new('RGBA',(width,height));icon.paste(source,((width-source.width)//2,(height-source.height)//2))
     backdrop=Image.new('RGB',icon.size,(24,28,56));backdrop.paste(icon,mask=icon.getchannel('A'))
     quantized=backdrop.quantize(palette=palette,dither=Image.Dither.FLOYDSTEINBERG)

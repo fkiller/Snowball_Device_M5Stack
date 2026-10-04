@@ -2,6 +2,7 @@
 // titles, paths, model IDs and message text remain the source's exact content.
 const strings={
   ready:['Ready','준비됨'], nativeDefault:['Native default','네이티브 기본값'],
+  nativePolicy:['Native policy','네이티브 정책'],
   noEntries:['No native entries','네이티브 항목 없음'],
   discovering:['Discovering native capabilities...','네이티브 기능 검색 중...'],
   noCapabilities:['No native capabilities reported','보고된 네이티브 기능 없음'],

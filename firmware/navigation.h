@@ -42,4 +42,13 @@ struct Navigation {
 };
 constexpr int ScreenWidth=320,ScreenHeight=240,TopHeight=30,BottomY=213,BottomHeight=27;
 constexpr int BoxWidth=104,BoxStride=106;
+constexpr int ContentRows=12,ContentLineHeight=14,ContentTextY=35;
+struct Scrollbar {int top,height;};
+inline Scrollbar scrollbar(int total,int visible,int offset,int track){
+  if(total<=visible||total<=0)return {0,track};
+  int height=std::max(8,track*visible/total);
+  int maximum=total-visible;
+  int bounded=std::max(0,std::min(offset,maximum));
+  return {static_cast<int>((static_cast<int64_t>(track-height)*bounded)/maximum),height};
+}
 }
