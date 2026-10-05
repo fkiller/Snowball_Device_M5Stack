@@ -20,10 +20,10 @@ public:
   }
 };
 enum class Focus { Top, Content };
-enum class Crossing { None, Top, Content };
+enum class Crossing { None, Top, Content, Editor };
 struct Navigation {
   Focus focus=Focus::Content;
-  int crumb=3,index=0,total=0,rows=7,returnCrumb=3;
+  int crumb=4,index=0,total=0,rows=7,returnCrumb=4;
   bool reader=true;
   int maximum()const{return std::max(0,total-(reader?rows:1));}
   void configure(int count,int visible,bool reading){total=std::max(0,count);rows=visible;reader=reading;index=std::max(0,std::min(index,maximum()));}
@@ -31,14 +31,42 @@ struct Navigation {
   int start()const{return reader?index:std::max(0,std::min(index-rows/2,total-rows));}
   Crossing move(int direction,bool page=false){
     if(focus==Focus::Top){
-      if(direction>0&&crumb==3){focus=Focus::Content;return Crossing::Content;}
-      crumb=std::max(0,std::min(3,crumb+direction));return Crossing::None;
+      if(direction>0&&crumb==4){focus=Focus::Content;return Crossing::Content;}
+      crumb=std::max(0,std::min(4,crumb+direction));return Crossing::None;
     }
     if(!page&&direction<0&&index==0){focus=Focus::Top;crumb=returnCrumb;return Crossing::Top;}
+    if(reader&&direction>0&&index==maximum())return Crossing::Editor;
     index=std::max(0,std::min(maximum(),index+direction*(page?rows:1)));return Crossing::None;
   }
-  void edge(bool end){if(focus==Focus::Top)crumb=end?3:0;else index=end?maximum():0;}
+  void edge(bool end){if(focus==Focus::Top)crumb=end?4:0;else index=end?maximum():0;}
 };
-constexpr int ScreenWidth=320,ScreenHeight=240,TopHeight=30,BottomY=207,BottomHeight=33;
+// Local menu parents retain the exact selected row and focus. Re-entering a
+// page retires its descendants, so connection retry paths cannot grow a loop.
+class MenuHistory {
+  struct Frame {int page;Navigation navigation;};
+  Frame frames[8];int depth=0;
+public:
+  void clear(){depth=0;}
+  bool remember(int page,const Navigation& navigation){
+    for(int i=0;i<depth;i++)if(frames[i].page==page){depth=i;break;}
+    if(depth==8)return false;
+    frames[depth++]={page,navigation};return true;
+  }
+  bool restore(int current,int& page,Navigation& navigation){
+    while(depth){const auto& frame=frames[--depth];if(frame.page==current)continue;
+      page=frame.page;navigation=frame.navigation;return true;}
+    return false;
+  }
+};
+constexpr int ScreenWidth=320,ScreenHeight=240,TopHeight=30,BottomY=213,BottomHeight=27;
 constexpr int BoxWidth=104,BoxStride=106;
+constexpr int ContentRows=12,ContentLineHeight=14,ContentTextY=35;
+struct Scrollbar {int top,height;};
+inline Scrollbar scrollbar(int total,int visible,int offset,int track){
+  if(total<=visible||total<=0)return {0,track};
+  int height=std::max(8,track*visible/total);
+  int maximum=total-visible;
+  int bounded=std::max(0,std::min(offset,maximum));
+  return {static_cast<int>((static_cast<int64_t>(track-height)*bounded)/maximum),height};
+}
 }

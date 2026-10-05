@@ -2,7 +2,7 @@
 import argparse,base64,json,time,sys
 from pathlib import Path
 import serial
-from PIL import Image
+from framebuffer import decode_framebuffer
 sys.stdout.reconfigure(encoding='utf-8')
 p=argparse.ArgumentParser()
 p.add_argument('--port',required=True)
@@ -25,18 +25,19 @@ while time.monotonic()<deadline:
     except ValueError:pass
 if inspection is None:raise RuntimeError('No actual firmware inspection response')
 print(json.dumps(inspection,ensure_ascii=False))
-send({'type':'screenshot'})
+send({'type':'screenshot','raw':True})
+pixel_format='rgb888'
 rows={};deadline=time.monotonic()+70
 while time.monotonic()<deadline:
     try:obj=json.loads(port.readline())
     except ValueError:continue
-    if obj.get('type')=='screen_row':
+    if obj.get('type')=='screen_begin':pixel_format=obj['format']
+    elif obj.get('type')=='screen_row':
         row=base64.b64decode(obj['data'],validate=True)
-        if len(row)!=960:raise RuntimeError('Invalid RGB framebuffer row')
         rows[obj['y']]=row
     elif obj.get('type')=='screen_end':break
 if set(rows)!=set(range(240)):raise RuntimeError(f'Incomplete framebuffer: {len(rows)}/240 rows')
-image=Image.frombytes('RGB',(320,240),b''.join(rows[y] for y in range(240)))
+image=decode_framebuffer(rows,pixel_format)
 out=Path(args.output);out.parent.mkdir(parents=True,exist_ok=True);image.save(out)
 if args.keys is not None:send({'type':'clear-check'})
 port.close()

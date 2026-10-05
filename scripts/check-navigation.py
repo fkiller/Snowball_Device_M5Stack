@@ -13,6 +13,8 @@ import serial
 parser=argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--port',required=True)
 parser.add_argument('--screens',type=Path)
+parser.add_argument('--capture-names',nargs='+',help='Capture only named screens; all navigation checks still run')
+parser.add_argument('--display-language',choices=['en','ko'],help='Use an actual display locale for captures; restore it afterward')
 parser.add_argument('--input-screens',action='store_true',help='Explicit disposable English/Korean rendering QA; refuses an existing draft')
 args=parser.parse_args()
 port=serial.Serial();port.port=args.port;port.baudrate=115200;port.timeout=.15;port.dtr=port.rts=False;port.open()
@@ -48,15 +50,15 @@ def action(name,settle=True):
         if time.monotonic()>deadline:raise RuntimeError('Native navigation request did not settle')
         time.sleep(.15)
 def capture(name):
-    if not args.screens:return
-    from PIL import Image
-    send('screenshot');wait('screen_begin')
+    if not args.screens or (args.capture_names and name not in args.capture_names):return
+    from framebuffer import decode_framebuffer
+    send('screenshot',raw=True);begin=wait('screen_begin');pixel_format=begin['format']
     rows={}
     for _ in range(240):
-        row=wait('screen_row');raw=base64.b64decode(row['data'],validate=True);assert len(raw)==960;rows[row['y']]=raw
+        row=wait('screen_row');raw=base64.b64decode(row['data'],validate=True);rows[row['y']]=raw
     wait('screen_end');assert set(rows)==set(range(240))
     args.screens.mkdir(parents=True,exist_ok=True)
-    Image.frombytes('RGB',(320,240),b''.join(rows[y] for y in range(240))).save(args.screens/(name+'.png'))
+    decode_framebuffer(rows,pixel_format).save(args.screens/(name+'.png'))
     print('Captured real framebuffer: '+name,flush=True)
 def check(state,**expected):
     for key,value in expected.items():assert state[key]==value,(key,state[key],value)
@@ -65,12 +67,21 @@ def check(state,**expected):
 try:
     initial=inspect()
     if initial['page'] in (2,3,5):raise RuntimeError('Device is editing; no QA actions were sent.')
+    deadline=time.monotonic()+20
+    while True:
+        send('connection-inspect');live=wait('connection-state')
+        if live['middleware'] and live['responseAgeMs']<4000:break
+        if time.monotonic()>deadline:raise RuntimeError('Actual middleware is unavailable')
+        time.sleep(.2);initial=inspect()
+    if args.display_language:
+        send('settings-check',action='display',korean=args.display_language=='ko');time.sleep(.2)
+        changed=inspect();assert changed['displayLanguage']==args.display_language
     state=action('content');check(state,page=0,focus='content')
     assert state['view'].get('connected'),'Actual middleware is unavailable'
-    state=action('end');assert state['cursor']==max(0,state['view']['contentTotal']-11)
+    state=action('end');assert state['cursor']==max(0,state['view']['contentTotal']-12)
     state=action('home');assert state['cursor']==0
     capture('session-content')
-    state=action('home');state=action('up');check(state,page=0,focus='top',crumb=3)
+    state=action('home');state=action('up');check(state,page=0,focus='top',crumb=4)
     state=action('select');check(state,page=1,focus='content');assert state['view']['menuKind']=='sessions'
     selected=state['view']['menuIndex'];total=state['view']['menuTotal'];assert total>0
     assert state['cursor']==selected and state['viewportStart']==state['view']['menuOffset']
@@ -81,11 +92,17 @@ try:
     if total>7:
         state=action('pgdn');assert state['cursor']==7
         state=action('pgup');assert state['cursor']==0
+    state=action('up');check(state,page=0,focus='top',crumb=4)
     state=action('up');check(state,page=0,focus='top',crumb=3)
+    state=action('select');check(state,page=1,focus='content');assert state['view']['menuKind']=='projects'
+    projects=state['view']['menuTotal'];assert projects>0
+    capture('project-list')
+    state=action('home');state=action('up');check(state,page=0,focus='top',crumb=3)
     state=action('up');check(state,page=0,focus='top',crumb=2)
+    capture('harness-breadcrumb')
     state=action('select');check(state,page=1,focus='content');assert state['view']['menuKind']=='harnesses'
     harnesses=state['view']['menuTotal'];assert harnesses>0
-    assert all(len(label)<=5 for label in state['view']['items'])
+    assert all(icon['size']==16 for icon in state['view']['itemIcons'] if icon)
     capture('harness-list')
     state=action('home');state=action('up');check(state,page=0,focus='top',crumb=2)
     state=action('up');check(state,page=0,focus='top',crumb=1)
@@ -111,8 +128,19 @@ try:
             if after['draft']!=expected or after['page']!=2:raise RuntimeError('Human input changed the draft; leaving it untouched.')
             while after['pending']:time.sleep(.15);after=inspect()
             send('clear-check');time.sleep(.15)
+        send('ime-check',korean=initial['korean'],keys='');time.sleep(.15)
+        restored=inspect()
+        if restored['draft']:raise RuntimeError('Human input detected; leaving it untouched.')
+        while restored['pending']:time.sleep(.15);restored=inspect()
+        send('clear-check');time.sleep(.15)
         state=action('content');check(state,page=0,focus='content')
     print(json.dumps({'actualSessionCount':total,'actualHarnessCount':harnesses,
                       'focusHierarchy':True,'homeEndPaging':True,'fontLayout':True,
                       'nativePromptsSent':0}),flush=True)
-finally:port.close()
+finally:
+    if args.display_language and 'initial' in globals():
+        current=inspect()
+        if not current['draft'] and current['page'] not in (2,3,5):
+            send('settings-check',action='display',korean=initial['displayLanguage']=='ko')
+            time.sleep(.2)
+    port.close()

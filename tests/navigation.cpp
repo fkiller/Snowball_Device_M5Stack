@@ -13,15 +13,36 @@ int main(){
   // A long second press cannot accidentally admit the pending first B click.
   ButtonGesture secondHold;secondHold.update(10,true);secondHold.update(60,false);secondHold.update(100,true);
   assert(secondHold.update(400,true)==Gesture::None);assert(secondHold.update(600,true)==Gesture::Hold);
-  Navigation n;n.list(30,0,3);assert(n.start()==0);n.list(30,14,3);assert(n.start()==11);
-  n.list(30,29,3);assert(n.start()==23);n.edge(false);assert(n.index==0);
-  assert(n.move(-1)==Crossing::Top);assert(n.crumb==3);n.move(-1);assert(n.crumb==2);
+  Navigation n;n.list(30,0,4);assert(n.start()==0);n.list(30,14,4);assert(n.start()==11);
+  n.list(30,29,4);assert(n.start()==23);n.edge(false);assert(n.index==0);
+  assert(n.move(-1)==Crossing::Top);assert(n.crumb==4);n.move(-1);assert(n.crumb==3);n.move(-1);assert(n.crumb==2);
   n.move(-1);assert(n.crumb==1);n.move(-1);assert(n.crumb==0);n.edge(true);
-  assert(n.move(1)==Crossing::Content);n.list(30,29,3);n.move(-1,true);assert(n.index==22);
-  n.configure(100,11,true);n.edge(true);assert(n.index==89);n.edge(false);n.move(-1,true);
+  assert(n.move(1)==Crossing::Content);n.list(30,29,4);n.move(-1,true);assert(n.index==22);
+  n.configure(100,11,true);n.edge(true);assert(n.index==89);assert(n.move(1)==Crossing::Editor);assert(n.move(1,true)==Crossing::Editor);n.edge(false);n.move(-1,true);
   assert(n.focus==Focus::Content&&n.index==0);assert(n.move(-1)==Crossing::Top);
+  n.focus=Focus::Content;n.configure(0,11,true);assert(n.move(1)==Crossing::Editor);
   ButtonGesture rollover;rollover.update(0xffffff00,true);assert(rollover.update(0x100,true)==Gesture::Hold);
   static_assert(2+2*BoxStride+BoxWidth<=ScreenWidth,"ABC boxes overflow");
   static_assert(BottomY+BottomHeight==ScreenHeight,"Footer exceeds LCD");
+  static_assert(ContentTextY+ContentRows*ContentLineHeight<BottomY,"Content overlaps footer");
+  MenuHistory history;Navigation settings;settings.list(6,4,0);
+  assert(history.remember(8,settings));Navigation language;language.list(2,1,0);
+  int parent=-1;assert(history.restore(13,parent,language));assert(parent==8&&language.index==4&&language.focus==Focus::Content);
+  settings.list(6,0,0);history.remember(8,settings);Navigation aps;aps.list(27,19,0);history.remember(4,aps);
+  Navigation password;password.list(3,2,0);assert(history.restore(5,parent,password));assert(parent==4&&password.index==19&&password.start()==16);
+  assert(history.restore(4,parent,password));assert(parent==8&&password.index==0);
+  // A repeated middleware/Wi-Fi failure path retires old descendants.
+  history.remember(8,settings);Navigation find;find.list(3,1,0);history.remember(11,find);history.remember(4,aps);
+  find.index=0;history.remember(11,find);assert(history.restore(10,parent,password)&&parent==11&&password.index==0);
+  assert(history.restore(11,parent,password)&&parent==8);assert(!history.restore(8,parent,password));
+  history.remember(8,settings);history.clear();assert(!history.restore(13,parent,password));
+  for(int total:{0,1,12,13,100,100000}){
+    int maximum=std::max(0,total-ContentRows);auto first=scrollbar(total,ContentRows,0,175),last=scrollbar(total,ContentRows,maximum,175);
+    assert(first.top==0&&first.height>0&&first.height<=175);
+    assert(last.top+last.height==175);
+    int previous=0;for(int offset=0;offset<=maximum;offset++){auto bar=scrollbar(total,ContentRows,offset,175);assert(bar.top>=previous&&bar.top+bar.height<=175);previous=bar.top;}
+    assert(scrollbar(total,ContentRows,-1,175).top==0);
+    assert(scrollbar(total,ContentRows,1000000,175).top==last.top);
+  }
   std::cout<<"Navigation boundaries, anchors, paging, gesture admission and geometry passed\n";
 }

@@ -1,4 +1,8 @@
-import {createHmac, timingSafeEqual} from 'node:crypto';
+import {createHmac, createHash, timingSafeEqual} from 'node:crypto';
+export function controllerIdForDevice(deviceId){
+  if(!/^m5-[a-f0-9]{12}$/.test(deviceId))throw Error('invalid_device_identity');
+  return 'ctl_'+createHash('sha256').update(`snowball.controller.v1\nsnowball.device-m5stack\nphysical\n${deviceId}`).digest('hex').slice(0,16);
+}
 import {isIPv4} from 'node:net';
 export const MAX_FRAME = 16384;
 export const privateIp = ip => isIPv4(ip) && (ip.startsWith('127.') || ip.startsWith('10.') || ip.startsWith('192.168.') || (ip.startsWith('172.') && +ip.split('.')[1]>=16 && +ip.split('.')[1]<=31));
@@ -23,9 +27,10 @@ export function flattenSessions(snapshot) {
 }
 export function validateAction(action) {
   if(!action || typeof action!=='object' || Array.isArray(action)) throw Error('invalid_action');
-  if(!['poll','machines','harnesses','sessions','browse','back','models','efforts','select','send','status','read','skin'].includes(action.op)) throw Error('unsupported_action');
-  const allowed=['op','index','text','commandId'];
+  if(!['poll','machines','harnesses','projects','sessions','browse','back','models','efforts','access','select','send','status','read','skin'].includes(action.op)) throw Error('unsupported_action');
+  const allowed=['op','index','text','commandId','locale'];
   if(Object.keys(action).some(k=>!allowed.includes(k))) throw Error('invalid_action');
+  if(action.locale!==undefined&&!['en','ko'].includes(action.locale))throw Error('invalid_locale');
   if(action.index!==undefined && (!Number.isInteger(action.index)||action.index<0||action.index>100000)) throw Error('invalid_index');
   if(action.op==='send' && (typeof action.text!=='string'||!action.text.trim()||Buffer.byteLength(action.text)>2048|| !/^[a-f0-9]{32}$/.test(action.commandId))) throw Error('invalid_prompt');
   return action;

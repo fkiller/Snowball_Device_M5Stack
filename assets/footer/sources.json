@@ -1,0 +1,88 @@
+{
+  "Left": {
+    "file": "lucide-arrow-left.svg",
+    "url": "https://raw.githubusercontent.com/lucide-icons/lucide/500620a2e8123f8d1db191538886dc0c223f69a9/icons/arrow-left.svg",
+    "sha256": "c5f4b88076108eb1a0d95336e1aa7e7bb1419a3a92af96f6247d88cd3456f933"
+  },
+  "Right": {
+    "file": "lucide-arrow-right.svg",
+    "url": "https://raw.githubusercontent.com/lucide-icons/lucide/500620a2e8123f8d1db191538886dc0c223f69a9/icons/arrow-right.svg",
+    "sha256": "288397fdb73bb4f783cf9eabb726ff47357df1d4e3f1201dd748090579f108b9"
+  },
+  "Up": {
+    "file": "lucide-arrow-up.svg",
+    "url": "https://raw.githubusercontent.com/lucide-icons/lucide/500620a2e8123f8d1db191538886dc0c223f69a9/icons/arrow-up.svg",
+    "sha256": "8c22c25874c80bb062bef985d207d8f1d4a4d7847237d0a8cf720a3235968518"
+  },
+  "Down": {
+    "file": "lucide-arrow-down.svg",
+    "url": "https://raw.githubusercontent.com/lucide-icons/lucide/500620a2e8123f8d1db191538886dc0c223f69a9/icons/arrow-down.svg",
+    "sha256": "2b641c7a59d39450edfed72067fcc9940a1a316a737346af23b4b9103c0689f2"
+  },
+  "PageUp": {
+    "file": "lucide-file-up.svg",
+    "url": "https://raw.githubusercontent.com/lucide-icons/lucide/500620a2e8123f8d1db191538886dc0c223f69a9/icons/file-up.svg",
+    "sha256": "0bd753699aed9b50bcbde59b12e1409329bb9291c0aa523dd4553497cd665c0b"
+  },
+  "PageDown": {
+    "file": "lucide-file-down.svg",
+    "url": "https://raw.githubusercontent.com/lucide-icons/lucide/500620a2e8123f8d1db191538886dc0c223f69a9/icons/file-down.svg",
+    "sha256": "ef04b1758104a3e8231f2926ddaad2101205c14e4a842d238946f5dee7fcdb29"
+  },
+  "Select": {
+    "file": "lucide-check.svg",
+    "url": "https://raw.githubusercontent.com/lucide-icons/lucide/500620a2e8123f8d1db191538886dc0c223f69a9/icons/check.svg",
+    "sha256": "7f33acc9a77a61659531044525fc008edebe215bf4dcf1c789c8674ad3277db0"
+  },
+  "Edit": {
+    "file": "lucide-square-pen.svg",
+    "url": "https://raw.githubusercontent.com/lucide-icons/lucide/500620a2e8123f8d1db191538886dc0c223f69a9/icons/square-pen.svg",
+    "sha256": "09bdac7fdb94058246a5d3132eea0976e690d01694179ab6f474faa2c21de59a"
+  },
+  "Menu": {
+    "file": "lucide-settings-2.svg",
+    "url": "https://raw.githubusercontent.com/lucide-icons/lucide/500620a2e8123f8d1db191538886dc0c223f69a9/icons/settings-2.svg",
+    "sha256": "06d06c191bd7eb28afaf9d40acb5c49ef69448fdeda91801d9823d7c440a4e10"
+  },
+  "Tail": {
+    "file": "lucide-arrow-down-to-line.svg",
+    "url": "https://raw.githubusercontent.com/lucide-icons/lucide/500620a2e8123f8d1db191538886dc0c223f69a9/icons/arrow-down-to-line.svg",
+    "sha256": "d44032ba6c8d27fa6b1589831a4cf5e22acf3b1e7bb7852913c1bf323b1fd7de"
+  },
+  "Language": {
+    "file": "lucide-languages.svg",
+    "url": "https://raw.githubusercontent.com/lucide-icons/lucide/500620a2e8123f8d1db191538886dc0c223f69a9/icons/languages.svg",
+    "sha256": "ae9048feb2c7b19855da9a8f5414f68125573039777a89b9c253cceed5dc5075"
+  },
+  "Back": {
+    "file": "lucide-corner-up-left.svg",
+    "url": "https://raw.githubusercontent.com/lucide-icons/lucide/500620a2e8123f8d1db191538886dc0c223f69a9/icons/corner-up-left.svg",
+    "sha256": "10653642ac35cae8efbdf1a5572a15adccae921c80b1acfc7b9a5455fc7a23ef"
+  },
+  "Eye": {
+    "file": "lucide-eye.svg",
+    "url": "https://raw.githubusercontent.com/lucide-icons/lucide/500620a2e8123f8d1db191538886dc0c223f69a9/icons/eye.svg",
+    "sha256": "5bf90197dd7629cad64a2e48d1186a71559deb6121207d10e3dc5b19ebaffdcf"
+  },
+  "Run": {
+    "file": "lucide-send-horizontal.svg",
+    "url": "https://raw.githubusercontent.com/lucide-icons/lucide/500620a2e8123f8d1db191538886dc0c223f69a9/icons/send-horizontal.svg",
+    "sha256": "8545e956d4779e74540d40352aa89c5707768d2a267e37e3f2513d98be931a23"
+  },
+  "GestureTap": {
+    "file": "lucide-dot.svg",
+    "url": "https://raw.githubusercontent.com/lucide-icons/lucide/500620a2e8123f8d1db191538886dc0c223f69a9/icons/dot.svg",
+    "sha256": "7c98b944e15871f137e75ad9898975d4722bc632a30f65ac19d5ca39f3b5e2b4"
+  },
+  "GestureHold": {
+    "file": "lucide-minus.svg",
+    "url": "https://raw.githubusercontent.com/lucide-icons/lucide/500620a2e8123f8d1db191538886dc0c223f69a9/icons/minus.svg",
+    "sha256": "a0c743ab6dbf545d8a6e19ef3874f48ede686ce68d25e231bd81f540d97b1f19"
+  },
+  "GestureDouble": {
+    "file": "lucide-ellipsis.svg",
+    "url": "https://raw.githubusercontent.com/lucide-icons/lucide/500620a2e8123f8d1db191538886dc0c223f69a9/icons/ellipsis.svg",
+    "sha256": "06a28f7a664cce761eac7ac94de6bd04a3f31d50c7a2d15991921caf48842ab6",
+    "adaptation": "Two-dot variant of ellipsis: omit the center dot; keep upstream outer circles."
+  }
+}
