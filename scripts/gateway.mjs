@@ -13,6 +13,8 @@ import {translate} from '../src/i18n.mjs';
 import {ReplayGuard,sign,material,privateIp,MAX_FRAME,controllerIdForDevice} from '../src/protocol.mjs';
 
 const root=fileURLToPath(new URL('..',import.meta.url));
+process.on('message',message=>{if(message==='snowball.stop')process.emit('SIGINT');});
+process.on('disconnect',()=>process.emit('SIGINT'));
 const args=process.argv.slice(2),options={bind:'127.0.0.1',port:47771,backend:'http://127.0.0.1:8765',python:process.env.SNOWBALL_M5_PYTHON??'python'};
 for(let i=0;i<args.length;i++){
   const name=args[i].replace(/^--/,'');
@@ -168,5 +170,5 @@ function connectReverse(){
 const timer=setInterval(()=>{if(serial?.stdin.writable)sendSerial({type:'probe'});connectReverse();},3000);
 connectReverse();
 let closing=false;
-async function close(){if(closing)return;closing=true;clearInterval(timer);serial?.stdin.end();serial?.kill();reverse?.destroy();udp?.close();server.close();broker.close();await navigationWrite;}
+async function close(){if(closing)return;closing=true;clearInterval(timer);serial?.stdin.end();serial?.kill();reverse?.destroy();udp?.close();server.close();broker.close();await navigationWrite;if(process.connected)process.disconnect();}
 process.on('SIGINT',()=>void close());process.on('SIGTERM',()=>void close());
