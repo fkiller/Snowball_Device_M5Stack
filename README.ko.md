@@ -1,8 +1,63 @@
-# Snowball Device — M5Stack + FACES
+<p align="center">
+  <img src="assets/banner.png" alt="Snowball Banner" width="100%">
+</p>
 
-[English](README.md) · **한국어**
+<h1 align="center">
+  <img src="assets/icon.png" width="48" height="48" valign="middle" alt="Snowball Icon">
+  Snowball Device · M5Stack — Preview
+</h1>
+
+<p align="center"><strong>오리지널 ESP32 Core + FACES 키보드 펌웨어 및 기기 게이트웨이</strong></p>
+
+<p align="center">
+  <a href="README.md">English</a> | <a href="README.ko.md">한국어</a>
+</p>
+
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License"></a>
+  <img src="https://img.shields.io/badge/Node.js-%3E%3D22.12-green.svg" alt="Node.js">
+  <img src="https://img.shields.io/badge/Platforms-ESP32%20%7C%20FACES-orange.svg" alt="Platforms">
+  <a href="https://github.com/fkiller/Snowball_Middleware#one-shot-install"><img src="https://img.shields.io/badge/Install-Snowball-purple.svg" alt="Install Snowball"></a>
+</p>
+
+---
+
+<a id="one-shot-install"></a>
+## Snowball 한 번에 설치
+
+**Snowball Middleware가 공통 설치와 PC 실행을 담당합니다.** Snowball Control은 MK20 펌웨어·HUD·기기 도구를, Snowball Device · M5Stack은 ESP32 펌웨어와 게이트웨이를 담당합니다. Web UI와 M5Stack에는 Control 체크아웃이 필요 없습니다. 세 Snowball Harness 저장소의 Codex·Antigravity·OpenCode 플러그인은 모든 프로필에 함께 설치됩니다.
+
+Windows PowerShell에서 원하는 구성의 명령 **하나만** 실행하세요.
+
+| 내 구성 | 함께 설치하는 구성 요소 | 명령 |
+| --- | --- | --- |
+| MK20 | MK20 런타임 + Middleware + 하네스 플러그인 3종 | `& ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/fkiller/Snowball_Middleware/main/install.ps1'))) -Profile mk20` |
+| M5Stack + FACES | M5Stack 펌웨어/게이트웨이 + Middleware + 하네스 플러그인 3종 | `& ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/fkiller/Snowball_Middleware/main/install.ps1'))) -Profile m5stack` |
+| Web UI만 | Middleware + 하네스 플러그인 3종 | `& ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/fkiller/Snowball_Middleware/main/install.ps1'))) -Profile web` |
+
+설치기는 Node/Git(기기 프로필은 Python 포함) 준비, 저장소 빌드, 격리된 플러그인 프로세스의 실제 초기화 검증, **Start-Snowball.ps1** 실행 파일·바탕화면 바로가기 생성까지 수행합니다. 실제 API 응답을 확인한 뒤 **http://127.0.0.1:8765/**를 엽니다. 기본 설치 위치는 `%LOCALAPPDATA%\Snowball`이며, 이후 실행 파일은 다운로드 없이 설치된 구성을 다시 시작합니다.
+
+M5Stack은 첫 설치 시 USB로 연결하세요. 플래시 용량 탐지, 기존 전체 플래시 비공개 백업, 펌웨어 업로드, 실제 FACES 응답 확인 후 등록합니다. MK20은 같은 사설 LAN에 연결하세요. ADB 탐지 또는 SD/Wi-Fi 초기 설정과 물리 QMK DFU 단계를 설치기에서 안내합니다. MK20 변경 전 전체 SD 디스크 이미지 백업을 보관해야 합니다. USB 재연결·부트로더 진입·네이티브 하네스 로그인은 사용자가 수행해야 하며, 네이티브 앱이 없으면 해당 공급자는 사용 불가로 표시합니다.
+
+옵션: `-InstallRoot 경로`, `-Serial COM번호`, `-Bind PC의_사설_IP`, `-Mk20Address 기기_IP:5555`, `-Port 8765`, `-NoStart`, `-NoFlash`(이미 설치된 펌웨어 확인). 여러 USB 포트나 LAN 어댑터가 있으면 해당 옵션으로 지정하세요. 오류가 나면 완료로 처리하지 않습니다. 원샷 부트스트랩은 현재 **Windows** 대상입니다. Node/Git가 설치된 macOS 개발 환경에서는 같은 부모 폴더의 체크아웃 구성으로 `npm run setup -- --profile web` 또는 `--profile m5stack`을 사용할 수 있습니다. Linux 전체 플러그인 런타임은 아직 지원하지 않습니다.
+
+[공통 아키텍처와 저장소 역할](https://github.com/fkiller/Snowball_Control/blob/main/docs/ARCHITECTURE.md)
+
+[Control · MK20](https://github.com/fkiller/Snowball_Control) · [Middleware · Installer / Web UI](https://github.com/fkiller/Snowball_Middleware) · [Device · M5Stack](https://github.com/fkiller/Snowball_Device_M5Stack) · Harness: [Codex](https://github.com/fkiller/Snowball_Harness_Codex), [Antigravity](https://github.com/fkiller/Snowball_Harness_Antigravity), [OpenCode](https://github.com/fkiller/Snowball_Harness_OpenCode)
+
+---
 
 오리지널 M5Stack Core / Gray와 FACES QWERTY용 네이티브 ESP32 펌웨어 및 Snowball Protocol 1 디바이스 플러그인입니다. 첫 버전은 영문과 한글 두벌식 키보드 입력을 지원하며, 음성을 녹음하거나 PC 마이크를 사용하지 않습니다.
+
+## 실기 구동 영상
+
+실제 M5Stack + FACES에서 세션 내용을 탐색하고, 표시 언어를 바꾸고, 키보드로 프롬프트를 작성하는 모습입니다. 사용자가 2026-10-04에 공개한 실기 영상 원본입니다.
+
+<p align="center">
+  <a href="assets/videos/m5stack_navigation_demo.mp4"><img src="assets/screenshots/m5stack_navigation_demo.gif" width="360" alt="실제 M5Stack + FACES 버튼 탐색 시연"></a><br>
+  <em>24초 발췌 미리보기 · 전체 영상 1분 34초</em><br>
+  <a href="assets/videos/m5stack_navigation_demo.mp4">▶ GitHub 전체 MP4</a> &nbsp;|&nbsp; <a href="https://x.com/fkiller/status/2106892916149158101?s=20">X 원본 글</a>
+</p>
 
 ## 기기와 실제 구동 화면
 
@@ -34,7 +89,7 @@ Breadcrumb는 메뉴, 하네스 원본 아이콘, 괄호 없는 프로젝트 이
 
 하네스 아이콘은 설치된 공식 OpenAI 확장의 Codex 앱 아이콘, [Google Antigravity 공식 배포 자료](https://antigravity.google/press), [OpenCode favicon](https://github.com/anomalyco/opencode/blob/dev/packages/ui/src/assets/favicon/favicon-96x96-v3.png)을 16×16 RGB332로 축소·디더링하고 RGB565로 전송합니다. 각 플러그인이 자신의 픽셀과 투명도 마스크를 정의합니다.
 
-갤러리의 입력은 일회성 USB IME 진단으로 넣었으며 하네스에 프롬프트를 보내지 않았습니다. 실제 세션 대화는 갤러리에 넣지 않습니다. 이 캡처는 실제 렌더러의 동작을 확인하지만 사람의 물리 버튼 누르기나 하네스 응답 완료를 인증하지 않습니다.
+갤러리의 입력은 일회성 USB IME 진단으로 넣었으며 하네스에 프롬프트를 보내지 않았습니다. 실제 세션 대화는 갤러리에 넣지 않습니다. 이 캡처는 실제 렌더러를 확인하며, 위 실기 영상은 물리 버튼 탐색과 키보드 프롬프트 작성을 보여줍니다. 네이티브 하네스 응답 완료는 아직 검증하지 않았습니다.
 
 아키텍처와 배포 검증은 [Snowball_Control/docs/ARCHITECTURE.md](https://github.com/fkiller/Snowball_Control/blob/main/docs/ARCHITECTURE.md) 한 곳에서 관리합니다. 0.2.2는 미들웨어의 `/v1/controller` API와 플러그인 표시 메타데이터를 사용합니다. 기기마다 세션·모델·Effort·Access·테마·스크롤을 복구하고, 표시와 입력 언어는 각각 기기에 저장합니다. 유효한 세션 선택이 없으면 실제 미들웨어에서 마지막으로 활동한 세션과 하네스·프로젝트를 엽니다. 이후 다른 기기의 활동이 명시적으로 선택한 세션을 바꾸지 않습니다. M5Stack 조작은 MK20나 웹 탭의 선택을 바꾸지 않습니다.
 
