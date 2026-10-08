@@ -110,6 +110,8 @@ The default profile targets the physically verified 16MB ESP32-D0WDQ6-V3 board. 
 
 ## Run
 
+The [common Windows installer](https://github.com/fkiller/Snowball_Middleware#install-snowball) with `-Profile m5stack` runs the installed middleware and gateway in a hidden native tray and returns to the shell. The tray provides Web UI, Settings, Pause/Resume, Restart, Quit and login startup. Use `-NoFlash` when repeating setup without uploading firmware; USB/board verification and enrollment remain part of that profile. Current cross-component verification and remaining native field checks are recorded in the [central architecture](https://github.com/fkiller/Snowball_Control/blob/main/docs/ARCHITECTURE.md#change-impact-and-documentation).
+
 Start the existing Snowball middleware on loopback port 8765. The gateway uses its real session journal, session catalog, model catalog, and command API. Native session creation remains governed by the middleware; this release selects existing sessions.
 
 ```powershell

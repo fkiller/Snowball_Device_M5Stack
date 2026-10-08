@@ -108,6 +108,8 @@ python -m venv .venv
 
 ## 실행
 
+[공통 Windows 설치기](https://github.com/fkiller/Snowball_Middleware/blob/main/README.ko.md#snowball-한-번에-설치)의 `-Profile m5stack`은 설치된 미들웨어와 gateway를 숨김 네이티브 트레이로 실행하고 터미널로 반환합니다. 트레이에서 Web UI, 설정, 일시정지/재개, 재시작, 종료와 로그인 자동 시작을 제공합니다. 펌웨어 업로드 없이 설치를 반복할 때는 `-NoFlash`를 사용하며 USB/보드 검증과 등록 절차는 유지합니다. 교차 구성 검증과 남은 실물 확인은 [중앙 아키텍처](https://github.com/fkiller/Snowball_Control/blob/main/docs/ARCHITECTURE.ko.md#변경-영향과-문서-동기화)에 기록합니다.
+
 기존 Snowball 미들웨어를 루프백 8765에서 실행하세요. 게이트웨이는 실제 세션 저널·목록·모델 카탈로그·명령 API를 사용합니다. 첫 버전은 기존 세션을 선택하며 새 세션 생성은 미들웨어에서 관리합니다.
 
 ```powershell
