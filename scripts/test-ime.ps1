@@ -16,4 +16,7 @@ try {
   $connectionCommand = 'call "' + $setup + '" && cl /nologo /EHsc /utf-8 /std:c++17 tests\connection.cpp /Fe:artifacts\connection-test.exe /Fo:artifacts\connection-test.obj && artifacts\connection-test.exe'
   & cmd.exe /d /c $connectionCommand
   if ($LASTEXITCODE -ne 0) { throw 'Native connection/locale test failed.' }
+  $pairingCommand = 'call "' + $setup + '" && cl /nologo /EHsc /utf-8 /std:c++17 tests\pairing.cpp /Fe:artifacts\pairing-test.exe /Fo:artifacts\pairing-test.obj && artifacts\pairing-test.exe'
+  & cmd.exe /d /c $pairingCommand
+  if ($LASTEXITCODE -ne 0) { throw 'Native host pairing test failed.' }
 } finally { Pop-Location }

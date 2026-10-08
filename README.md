@@ -93,7 +93,7 @@ The plugin icons are reduced from the original Codex app icon in the installed o
 
 The system architecture and deployment verification are maintained only in [Snowball_Control/docs/ARCHITECTURE.md](https://github.com/fkiller/Snowball_Control/blob/main/docs/ARCHITECTURE.md).
 
-Version 0.2.2 requires the middleware's `/v1/controller` API and plugin presentation metadata. Each enrolled board restores its own session, model/effort/access choices, theme and scroll position; display and input languages persist separately on the board. The gateway checkpoints only this controller's display locale. With no valid saved session, it opens the real middleware's latest active session and derives its harness and project. Later activity on another controller does not replace an explicit selection. M5Stack navigation does not change MK20 or Supervisor tab selections.
+Version 0.3.0 requires the middleware's `/v1/controller` API and plugin presentation metadata. Each enrolled board restores its own session, model/effort/access choices, theme and scroll position; display and input languages persist separately on the board. The gateway checkpoints only this controller's display locale. With no valid saved session, it opens the real middleware's latest active session and derives its harness and project. Later activity on another controller does not replace an explicit selection. M5Stack navigation does not change MK20 or Supervisor tab selections.
 
 ## Build and upload
 
@@ -109,6 +109,8 @@ python -m venv .venv
 The default profile targets the physically verified 16MB ESP32-D0WDQ6-V3 board. For a 4MB original Core, change `board_upload.flash_size` to `4MB` before flashing. The 3MB application partition does not support OTA; updates use USB.
 
 ## Run
+
+Firmware 0.3.0 supports up to 16 enrolled PCs. Connect USB once to each PC and run the common installer in that PC's existing install root; existing MK20 support is retained. The first upgrade backs up the full flash before writing 0.3.0. Use `-NoFlash` for later enrollment/update with 0.3.0 already installed. Update the original PC's gateway too. Then disconnect USB and use Machine or Settings → Find middleware to select a registered PC. Previous enrollment and Wi-Fi settings are retained; an unknown PC requires USB enrollment. See the [central specification](https://github.com/fkiller/Snowball_Control/blob/main/docs/ARCHITECTURE.md) for protocol and physical verification limits.
 
 The [common Windows installer](https://github.com/fkiller/Snowball_Middleware#install-snowball) with `-Profile m5stack` runs the installed middleware and gateway in a hidden native tray and returns to the shell. The tray provides Web UI, Settings, Pause/Resume, Restart, Quit and login startup. Use `-NoFlash` when repeating setup without uploading firmware; USB/board verification and enrollment remain part of that profile. Current cross-component verification and remaining native field checks are recorded in the [central architecture](https://github.com/fkiller/Snowball_Control/blob/main/docs/ARCHITECTURE.md#change-impact-and-documentation).
 
@@ -132,7 +134,7 @@ USB provisions a random device enrollment key. The key stays in `.local/pairing.
 | B | Select / Compose | Context action shown in the footer | Context action shown in the footer |
 | C | ↓ / right | PgDn | End |
 
-Session content is the default screen. Home moves to its first line; another ↑ enters the session breadcrumb. B opens the current project's session list, centered on the current session. Home then ↑ returns to content with the session breadcrumb focused. From Settings or a settings selector, moving above the first item focuses the menu icon while keeping the main Settings list in Content. Move left through **session → project → harness → machine → menu**. Selecting project or harness opens its real source list; the menu opens Settings. The machine crumb appears only when focus reaches it or the menu icon. Lists use the same paging/Home/End controls. Machine discovery currently exposes the one real host observed by this loopback gateway.
+Session content is the default screen. Home moves to its first line; another ↑ enters the session breadcrumb. B opens the current project's session list, centered on the current session. Home then ↑ returns to content with the session breadcrumb focused. From Settings or a settings selector, moving above the first item focuses the menu icon while keeping the main Settings list in Content. Move left through **session → project → harness → machine → menu**. Selecting project or harness opens its real source list; the menu opens Settings. The machine crumb appears only when focus reaches it or the menu icon. Lists use the same paging/Home/End controls. Firmware 0.3.0 opens its own paired-PC list at the machine breadcrumb; select a PC to load that PC's actual harnesses, projects and sessions.
 
 In session content, B opens Prompt Edit, held B opens model/effort/refresh actions, and double B follows the latest lines. Moving down beyond the final content page or typing a keyboard key while reading also opens Prompt Edit; the first printable key becomes literal input. In lists, held B returns and double B opens session content.
 

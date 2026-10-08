@@ -18,6 +18,7 @@
 #include "../firmware/snowball_icon.h"
 #include "../firmware/i18n.h"
 #include "../firmware/connection.h"
+#include "../firmware/pairing.h"
 #include "../firmware/footer_icons.h"
 using snowball::Ui;
 static bool displayKorean=false;
@@ -35,6 +36,10 @@ static uint32_t reverseStarted=0;
 static snowball::TextInput input;
 static DynamicJsonDocument remoteView(12288);
 static String deviceId,controllerId,pairKey,hostIp,hostEpoch,bootId,discoverNonce,serialLine,wifiSsid,wifiPassword,notice="";
+static snowball::Pairings pairings;
+struct HostEndpoint {String ip,epoch;uint16_t port;uint32_t seen;HostEndpoint(String address="",String currentEpoch="",uint16_t currentPort=47771,uint32_t observed=0):ip(address),epoch(currentEpoch),port(currentPort),seen(observed){}};
+static HostEndpoint hostEndpoints[16];
+static String usbHostId;
 static uint16_t hostPort=47771;
 static uint32_t requestId=0,wireSeq=0,pendingId=0,lastUsb=0,lastPoll=0,lastHello=0,lastDiscovery=0,lastResponse=0,wifiStarted=0;
 static bool faces=false,dirty=true,pending=false,pendingSend=false,scanRunning=false,wifiEditing=false,contrast=false;
@@ -64,7 +69,7 @@ static uint32_t nextContentFetch=0;
 static int captureConnectionPhase=-1;
 static uint32_t captureRequestedAt=0;
 
-enum Page { SESSION_CONTENT=0, HOME=0, READ_REPLY=0, REMOTE_LIST=1, COMPOSE=2, CONFIRM=3, WIFI_LIST=4, WIFI_PASSWORD=5, INFO=7, SETTINGS=8, ACTIONS=9, CONNECT_STATUS=10, MIDDLEWARE_FIND=11, DISPLAY_LANGUAGE=12, INPUT_SETTINGS=13, EDITOR_POPUP=14 };
+enum Page { SESSION_CONTENT=0, HOME=0, READ_REPLY=0, REMOTE_LIST=1, COMPOSE=2, CONFIRM=3, WIFI_LIST=4, WIFI_PASSWORD=5, INFO=7, SETTINGS=8, ACTIONS=9, CONNECT_STATUS=10, MIDDLEWARE_FIND=11, DISPLAY_LANGUAGE=12, INPUT_SETTINGS=13, EDITOR_POPUP=14, MACHINES=15, FORGET_PC=16 };
 static Page page=SESSION_CONTENT;
 static const Ui settingsItems[]={Ui::WifiSettings,Ui::FindMiddleware,Ui::Theme,Ui::DisplayLanguage,Ui::InputSettings,Ui::DeviceInfo};
 static const Ui actionItems[]={Ui::Compose,Ui::Model,Ui::Effort,Ui::Refresh,Ui::BackContent};
@@ -72,13 +77,42 @@ void back();void draw();void select();void returnSession(bool top=false,bool ref
 bool wifiUi(){return page==WIFI_LIST||page==WIFI_PASSWORD||scanRunning;}
 
 String randomHex(size_t bytes){String s;for(size_t i=0;i<bytes;i++){uint8_t b=esp_random()&255;char h[3];snprintf(h,3,"%02x",b);s+=h;}return s;}
-String hmac(const String &value){uint8_t result[32];mbedtls_md_context_t ctx;mbedtls_md_init(&ctx);mbedtls_md_setup(&ctx,mbedtls_md_info_from_type(MBEDTLS_MD_SHA256),1);mbedtls_md_hmac_starts(&ctx,(const unsigned char*)pairKey.c_str(),pairKey.length());mbedtls_md_hmac_update(&ctx,(const unsigned char*)value.c_str(),value.length());mbedtls_md_hmac_finish(&ctx,result);mbedtls_md_free(&ctx);String s;for(int i=0;i<32;i++){char h[3];snprintf(h,3,"%02x",result[i]);s+=h;}return s;}
+String hmacKey(const String &key,const String &value){uint8_t result[32];mbedtls_md_context_t ctx;mbedtls_md_init(&ctx);mbedtls_md_setup(&ctx,mbedtls_md_info_from_type(MBEDTLS_MD_SHA256),1);mbedtls_md_hmac_starts(&ctx,(const unsigned char*)key.c_str(),key.length());mbedtls_md_hmac_update(&ctx,(const unsigned char*)value.c_str(),value.length());mbedtls_md_hmac_finish(&ctx,result);mbedtls_md_free(&ctx);String s;for(int i=0;i<32;i++){char h[3];snprintf(h,3,"%02x",result[i]);s+=h;}return s;}
+String hmac(const String &value){return hmacKey(pairKey,value);}
 bool safeEqual(const String&a,const String&b){if(a.length()!=b.length())return false;uint8_t difference=0;for(size_t i=0;i<a.length();i++)difference|=a[i]^b[i];return difference==0;}
 bool hex(const String&s,size_t length){if(s.length()!=length)return false;for(char c:s)if(!((c>='0'&&c<='9')||(c>='a'&&c<='f')))return false;return true;}
 String material(const char* direction,uint32_t seq,const String&payload){return String(direction)+"\n"+hostEpoch+"\n"+bootId+"\n"+String(seq)+"\n"+payload;}
 void serialJson(JsonDocument&doc){serializeJson(doc,Serial);Serial.println();}
-void hello(){StaticJsonDocument<384>d;d["type"]="hello";d["deviceId"]=deviceId;d["board"]="M5Stack";d["faces"]=faces;d["flashBytes"]=ESP.getFlashChipSize();d["ip"]=WiFi.status()==WL_CONNECTED?WiFi.localIP().toString():String("");d["firmware"]="0.2.2";serialJson(d);lastHello=millis();}
-bool usbOnline(){return lastUsb&&millis()-lastUsb<6500;}
+void hello(){StaticJsonDocument<384>d;d["type"]="hello";d["deviceId"]=deviceId;d["board"]="M5Stack";d["faces"]=faces;d["flashBytes"]=ESP.getFlashChipSize();d["ip"]=WiFi.status()==WL_CONNECTED?WiFi.localIP().toString():String("");d["firmware"]="0.3.0";serialJson(d);lastHello=millis();}
+String selectedHost(){return pairings.selected<0?String(""):String(pairings.hosts[pairings.selected].id.c_str());}
+bool usbOnline(){return lastUsb&&millis()-lastUsb<6500&&selectedHost()==usbHostId;}
+bool savePairings(const snowball::Pairings& value){
+  DynamicJsonDocument d(8192);d["version"]=1;d["selected"]=value.selected;auto list=d.createNestedArray("hosts");
+  for(size_t i=0;i<value.count;i++){auto h=list.createNestedObject();h["id"]=value.hosts[i].id;h["key"]=value.hosts[i].key;h["name"]=value.hosts[i].name;}
+  if(d.overflowed())return false;String raw;serializeJson(d,raw);return prefs.putString("hosts",raw)==raw.length();
+}
+void loadPairings(){
+  String raw=prefs.getString("hosts","");DynamicJsonDocument d(8192);
+  if(raw.length()&&!deserializeJson(d,raw)&&d["version"]==1){
+    snowball::Pairings restored;bool valid=true;
+    for(JsonObject h:d["hosts"].as<JsonArray>()){
+      std::string id=h["id"]|"",key=h["key"]|"",name=h["name"]|"";
+      if(id.empty()){if(!restored.migrateLegacy(key)){valid=false;break;}}
+      else if(restored.find(id)>=0||restored.enroll(id,key,name)<0){valid=false;break;}
+    }
+    int chosen=d["selected"]|-1;if(chosen<-1||chosen>=(int)restored.count)valid=false;
+    if(valid){restored.selected=chosen;pairings=restored;}
+  } else if(!raw.length()){pairings.migrateLegacy(prefs.getString("pair","").c_str());if(pairings.count&&savePairings(pairings))prefs.remove("pair");}
+  pairKey=pairings.selected<0?String(""):String(pairings.hosts[pairings.selected].key.c_str());
+}
+bool selectHost(int index){
+  auto next=pairings;if(!next.choose(index,pendingSend))return false;
+  if(!savePairings(next)){notice=tr(Ui::PairingStorageFailed);dirty=true;return false;}
+  reverseClient.stop();reverseReady=false;reverseLine="";pending=false;pendingReverse=false;pendingOp="";clearRemoteMenu=false;
+  pairings=next;pairKey=pairings.hosts[index].key.c_str();hostIp=hostEndpoints[index].ip;hostEpoch=hostEndpoints[index].epoch;hostPort=hostEndpoints[index].port;
+  remoteView.clear();lastResponse=0;expectedMenu="";listInitial=false;menuHistory.clear();readerOffset=0;dirty=true;return true;
+}
+void openMachines(){page=MACHINES;nav.list(pairings.count+4,pairings.selected>=0?pairings.selected:pairings.count,1);notice=tr(Ui::PairPc);dirty=true;}
 void toggleInputLanguage(){input.toggle();prefs.putBool("korean",input.korean);}
 bool middlewareOnline(){return lastResponse&&millis()-lastResponse<10000&&remoteView["connected"].as<bool>();}
 void acceptView(JsonVariantConst view){
@@ -157,7 +191,7 @@ void readReverse(){
     if(pending&&pendingReverse){pending=false;pendingSend=false;pendingOp="";notice=tr(Ui::ResponseUnknown);dirty=true;}
     WiFiClient candidate=reverseServer.available();if(!candidate)return;
     reverseClient=candidate;reverseClient.setNoDelay(true);reverseLine="";reverseChallenge=randomHex(8);reverseStarted=millis();
-    StaticJsonDocument<192>d;d["type"]="reverse-challenge";d["nonce"]=reverseChallenge;d["deviceId"]=deviceId;String challenge;serializeJson(d,challenge);if(!writeReverse(challenge+'\n'))return;
+    StaticJsonDocument<256>d;d["type"]="reverse-challenge";d["nonce"]=reverseChallenge;d["deviceId"]=deviceId;d["hostId"]=selectedHost();String challenge;serializeJson(d,challenge);if(!writeReverse(challenge+'\n'))return;
   }
   if(!reverseReady&&millis()-reverseStarted>2500){reverseClient.stop();return;}
   while(reverseClient.available()){
@@ -173,10 +207,10 @@ void readReverse(){
   }
 }
 void discoverHost(){
-  if(reverseReady&&reverseClient.connected()){notice=String(tr(Ui::MiddlewareConnected))+hostIp;dirty=true;request("poll");return;}
+  if(reverseReady&&reverseClient.connected()&&page!=MACHINES){notice=String(tr(Ui::MiddlewareConnected))+hostIp;dirty=true;request("poll");return;}
   if(WiFi.status()!=WL_CONNECTED){notice=tr(Ui::WifiRequired);dirty=true;return;}
-  if(pairKey.length()!=64){notice=tr(Ui::EnrollmentRequired);dirty=true;return;}
-  discoverNonce=randomHex(8);StaticJsonDocument<160>d;d["type"]="snowball.discover";d["nonce"]=discoverNonce;String raw;serializeJson(d,raw);
+  if(!pairings.count){notice=tr(Ui::PairPc);dirty=true;return;}
+  discoverNonce=randomHex(8);StaticJsonDocument<160>d;d["type"]="snowball.discover";d["nonce"]=discoverNonce;d["version"]=2;String raw;serializeJson(d,raw);
   IPAddress broadcast=WiFi.localIP();IPAddress mask=WiFi.subnetMask();for(int i=0;i<4;i++)broadcast[i]|=~mask[i];
   discovery.beginPacket(broadcast,47770);discovery.print(raw);discovery.endPacket();lastDiscovery=millis();notice=tr(Ui::Discovering);dirty=true;
 }
@@ -185,9 +219,15 @@ void readDiscovery(){int size=discovery.parsePacket();if(size<=0)return;if(size>
   String epoch=d["epoch"].as<String>(),ip=d["ip"].as<String>(),host=d["host"].as<String>();int port=d["port"]|0;IPAddress candidate;
   if(!hex(epoch,32)||!candidate.fromString(ip)||candidate!=discovery.remoteIP()||port<1024||port>65535)return;
   for(int i=0;i<4;i++)if((candidate[i]&WiFi.subnetMask()[i])!=(WiFi.localIP()[i]&WiFi.subnetMask()[i]))return;
-  String proof="discover\n"+discoverNonce+"\n"+epoch+"\n"+ip+"\n"+String(port)+"\n"+host;
-  if(!safeEqual(d["mac"].as<String>(),hmac(proof)))return;
-  hostIp=ip;hostPort=port;hostEpoch=epoch;notice=String(tr(Ui::MiddlewareFound))+host;dirty=true;request("poll");
+  String id=d["hostId"].as<String>();if(!snowball::hostIdentity(id.c_str())||d["version"]!=2||host.length()>128)return;
+  String proof="discover\n"+discoverNonce+"\n"+epoch+"\n"+ip+"\n"+String(port)+"\n"+host+"\n"+id;
+  int index=pairings.find(id.c_str());if(index<0)index=pairings.find("");if(index<0)return;
+  const String key=pairings.hosts[index].key.c_str();if(!safeEqual(d["mac"].as<String>(),hmacKey(key,proof)))return;
+  if(pairings.hosts[index].id.empty()||pairings.hosts[index].name!=host.c_str()){
+    auto next=pairings;if(next.enroll(id.c_str(),key.c_str(),host.c_str())!=index||!savePairings(next)){notice=tr(Ui::PairingStorageFailed);dirty=true;return;}pairings=next;
+  }
+  hostEndpoints[index]={ip,epoch,(uint16_t)port,millis()};dirty=true;
+  if(index==pairings.selected&&!pending){hostIp=ip;hostPort=port;hostEpoch=epoch;if(page!=MACHINES&&page!=FORGET_PC){notice=String(tr(Ui::MiddlewareFound))+host;request("poll");}}
 }
 void startWifiAssociation(){
   // A successful background reconnect must persist its original credentials,
@@ -298,6 +338,8 @@ void syncNavigation(){
   else if(page==ACTIONS)nav.configure(5,7,false);
   else if(page==DISPLAY_LANGUAGE||page==INPUT_SETTINGS)nav.configure(2,7,false);
   else if(page==MIDDLEWARE_FIND)nav.configure(3,7,false);
+  else if(page==MACHINES)nav.configure(pairings.count+4,7,false);
+  else if(page==FORGET_PC)nav.configure(2,7,false);
   else if(page==CONNECT_STATUS)nav.configure(4,4,false);
   else if(page==WIFI_LIST)nav.configure(scanCount+3,7,false);
   else if(page==COMPOSE){nav.focus=snowball::Focus::Content;nav.configure(1,1,false);}
@@ -345,6 +387,8 @@ void openEditorPopup(int button){
 void back(){
   if(page==EDITOR_POPUP){cancelEditorPopup();return;}
   if(page==WIFI_PASSWORD){passwordVisible=false;if(!restoreMenu()){page=WIFI_LIST;nav.list(scanCount+3,wifiIndex,0);}dirty=true;return;}
+  if(page==FORGET_PC){openMachines();return;}
+  if(page==MACHINES){returnSession(true);nav.crumb=1;return;}
   if(page==WIFI_LIST||page==INFO||page==DISPLAY_LANGUAGE||page==INPUT_SETTINGS||page==MIDDLEWARE_FIND||page==CONNECT_STATUS){if(scanRunning)cancelScan();connection.cancel();resumeWifi();returnSettings();return;}
   if(page==REMOTE_LIST){int origin=nav.returnCrumb;if(restoreMenu()){clearRemoteMenu=true;return;}returnSession(true);nav.crumb=origin;clearRemoteMenu=true;return;}
   if(page==CONFIRM){page=COMPOSE;nav.list(1,0,4);dirty=true;return;}
@@ -354,20 +398,29 @@ void select(){
   cursor=nav.index;
   if(nav.focus==snowball::Focus::Top){
     if(nav.crumb==0){menuHistory.clear();page=SETTINGS;nav.list(6,settingsIndex,0);}
-    else openRemote(nav.crumb==1?"machines":nav.crumb==2?"harnesses":nav.crumb==3?"projects":"sessions",nav.crumb);
+    else if(nav.crumb==1){openMachines();discoverHost();}
+    else openRemote(nav.crumb==2?"harnesses":nav.crumb==3?"projects":"sessions",nav.crumb);
   } else if(page==REMOTE_LIST||page==EDITOR_POPUP){if(!listInitial&&!pending)request("select",cursor);}
   else if(page==SESSION_CONTENT)beginCompose();
   else if(page==SETTINGS){
     settingsIndex=cursor;
     if(cursor!=2)menuHistory.remember((int)page,nav);
-    if(cursor==0)scanWifi();else if(cursor==1)findMiddleware();else if(cursor==2){contrast=!contrast;request("skin");}else if(cursor==3){page=DISPLAY_LANGUAGE;nav.list(2,displayKorean?1:0,0);}else if(cursor==4){page=INPUT_SETTINGS;nav.list(2,input.korean?1:0,0);}else {page=INFO;nav.list(8,0,0);nav.reader=true;}
+    if(cursor==0)scanWifi();else if(cursor==1){openMachines();discoverHost();}else if(cursor==2){contrast=!contrast;request("skin");}else if(cursor==3){page=DISPLAY_LANGUAGE;nav.list(2,displayKorean?1:0,0);}else if(cursor==4){page=INPUT_SETTINGS;nav.list(2,input.korean?1:0,0);}else {page=INFO;nav.list(8,0,0);nav.reader=true;}
   } else if(page==DISPLAY_LANGUAGE){
     displayKorean=cursor==1;prefs.putBool("displayKo",displayKorean);returnSettings();notice=tr(Ui::DisplayHints);request("poll");
   } else if(page==INPUT_SETTINGS){
     if(input.korean!=(cursor==1))toggleInputLanguage();returnSettings();notice=tr(Ui::InputSettingsHints);
   } else if(page==MIDDLEWARE_FIND){
     if(cursor<2)menuHistory.remember((int)page,nav);
-    if(cursor==0)findMiddleware();else if(cursor==1)scanWifi();else back();
+    if(cursor==0){openMachines();discoverHost();}else if(cursor==1)scanWifi();else back();
+  } else if(page==MACHINES){
+    if(cursor<(int)pairings.count){if(selectHost(cursor)){connection.middleware(millis());page=CONNECT_STATUS;nav.list(4,0,1);if(hostEpoch.length())request("poll");else discoverHost();}else{notice=tr(Ui::Wait);dirty=true;}}
+    else if(cursor==(int)pairings.count)discoverHost();
+    else if(cursor==(int)pairings.count+1){notice=tr(Ui::PairPc);dirty=true;}
+    else if(cursor==(int)pairings.count+2){if(pairings.selected>=0&&!pendingSend){page=FORGET_PC;nav.list(2,1,1);dirty=true;}}
+    else back();
+  } else if(page==FORGET_PC){
+    if(cursor==1)openMachines();else if(!pendingSend){int old=pairings.selected;auto next=pairings;if(next.remove(old)&&savePairings(next)){for(int i=old;i<(int)next.count;i++)hostEndpoints[i]=hostEndpoints[i+1];hostEndpoints[next.count]={};pairings=next;reverseClient.stop();reverseReady=false;pairKey="";hostEpoch="";hostIp="";pending=false;remoteView.clear();lastResponse=0;openMachines();}else{notice=tr(Ui::PairingStorageFailed);dirty=true;}}
   } else if(page==ACTIONS){
     if(cursor==0)beginCompose();else if(cursor==1)openRemote("models",4);else if(cursor==2)openRemote("efforts",4);else returnSession();
   } else if(page==COMPOSE){
@@ -477,12 +530,21 @@ void handleSerial(const String&raw){
   DynamicJsonDocument d(capacity);if(deserializeJson(d,raw))return;String type=d["type"]|"";
   if(type=="probe"){hello();return;}
   if(type=="enroll"){
-    String key=d["key"].as<String>(),epoch=d["epoch"].as<String>();if(!hex(key,64)||!hex(epoch,32))return;
-    // Updating a different enrollment requires a deliberate three-button hold.
-    if(pairKey.length()&&pairKey!=key){notice=tr(Ui::EnrollmentMismatch);dirty=true;return;}
-    if(pairKey!=key)prefs.putString("pair",key);pairKey=key;hostEpoch=epoch;hostIp=d["host"].as<String>();hostPort=d["port"]|47771;bool first=!lastUsb;lastUsb=millis();if(first&&!pending)request("poll");return;
+    String key=d["key"].as<String>(),epoch=d["epoch"].as<String>(),id=d["hostId"].as<String>(),name=d["name"].as<String>(),ip=d["host"].as<String>();int port=d["port"]|0;IPAddress address;
+    if(!hex(key,64)||!hex(epoch,32)||!snowball::hostIdentity(id.c_str())||!address.fromString(ip)||port<1024||port>65535)return;
+    auto next=pairings;int existing=next.find(id.c_str()),index=next.enroll(id.c_str(),key.c_str(),name.c_str());
+    if(index<0){notice=tr(existing>=0?Ui::EnrollmentMismatch:Ui::PairingStorageFailed);dirty=true;return;}
+    if((existing<0||next.selected<0)&&!pendingSend)next.choose(index,false);
+    bool changed=existing<0||pairings.selected!=next.selected||pairings.hosts[index].name!=next.hosts[index].name;
+    if(changed&&!savePairings(next)){notice=tr(Ui::PairingStorageFailed);dirty=true;return;}
+    bool selectedChanged=pairings.selected!=next.selected;pairings=next;usbHostId=id;bool first=!lastUsb;lastUsb=millis();hostEndpoints[index]={ip,epoch,(uint16_t)port,millis()};
+    if(pairings.selected==index){
+      if(selectedChanged){reverseClient.stop();reverseReady=false;pending=false;pendingReverse=false;pendingOp="";remoteView.clear();lastResponse=0;}
+      pairKey=key;hostEpoch=epoch;hostIp=ip;hostPort=port;if(first&&!pending)request("poll");
+    }
+    dirty=true;return;
   }
-  if(type=="response"&&pending&&!pendingReverse&&d["id"].as<uint32_t>()==pendingId){lastUsb=millis();acceptView(d["view"]);return;}
+  if(type=="response"&&usbOnline()&&pending&&!pendingReverse&&d["id"].as<uint32_t>()==pendingId){lastUsb=millis();acceptView(d["view"]);return;}
   if(type=="render"){notice=d["text"].as<String>();dirty=true;return;}
   if(type=="screenshot"){
     if(d["connectionPhase"].is<int>()){
@@ -511,7 +573,7 @@ void handleSerial(const String&raw){
     String command=d["action"]|"";
     if(command=="up")move(-1);else if(command=="down")move(1);else if(command=="pgup")move(-1,true);else if(command=="pgdn")move(1,true);
     else if(command=="home"){nav.edge(false);dirty=true;}else if(command=="end"){nav.edge(true);dirty=true;}
-    else if(command=="select"&&(nav.focus==snowball::Focus::Top||page==REMOTE_LIST||page==DISPLAY_LANGUAGE||page==INPUT_SETTINGS||page==SETTINGS||page==INFO||page==MIDDLEWARE_FIND||(page==ACTIONS&&cursor>0)||(page==WIFI_LIST&&cursor<scanCount)))select();
+    else if(command=="select"&&(nav.focus==snowball::Focus::Top||page==REMOTE_LIST||page==DISPLAY_LANGUAGE||page==INPUT_SETTINGS||page==SETTINGS||page==INFO||page==MIDDLEWARE_FIND||page==MACHINES||(page==ACTIONS&&cursor>0)||(page==WIFI_LIST&&cursor<scanCount)))select();
     else if(command=="left")keyboard(0xb4);
     else if(command=="content")returnSession();else if(command=="actions"){page=ACTIONS;nav.list(5,0,4);dirty=true;}
     else if(command=="reader"&&page==SESSION_CONTENT&&d["index"].is<int>()){
@@ -661,7 +723,7 @@ void draw(){
       if(!harnessGlyph(x,6,remoteView["harnessIcon"],TFT_WHITE)){canvas.drawRoundRect(x,5,17,18,2,TFT_WHITE);symbol(x+1,7,Symbol::Run,TFT_WHITE);}
       x+=21;continue;
     }
-    String label=crumb==1?String(remoteView["machine"]|tr(Ui::Machine)):crumb==2?String(remoteView["harnessName"]|tr(Ui::Harness)):crumb==3?String(remoteView["project"]|""):String(remoteView["session"]|"...");
+    String label=crumb==1?(pairings.selected>=0?String(pairings.hosts[pairings.selected].name.c_str()):String(tr(Ui::Machine))):crumb==2?String(remoteView["harnessName"]|tr(Ui::Harness)):crumb==3?String(remoteView["project"]|""):String(remoteView["session"]|"...");
     int budget=crumb==1?84:crumb==2?110:crumb==3?(top&&nav.crumb<=1?66:focused?112:96):315-x;
     label=fitText(label,budget-4);
     int width=min(budget,canvas.textWidth(label.c_str())+4);
@@ -680,7 +742,7 @@ void draw(){
       canvas.fillRoundRect(315,34,3,track,1,card);canvas.fillRoundRect(315,34+bar.top,3,bar.height,1,accent);
       layoutOk=layoutOk&&34+bar.top+bar.height<snowball::BottomY;
     }
-  } else if(page==REMOTE_LIST||page==SETTINGS||page==ACTIONS||page==WIFI_LIST||page==DISPLAY_LANGUAGE||page==INPUT_SETTINGS||page==MIDDLEWARE_FIND){
+  } else if(page==REMOTE_LIST||page==SETTINGS||page==ACTIONS||page==WIFI_LIST||page==DISPLAY_LANGUAGE||page==INPUT_SETTINGS||page==MIDDLEWARE_FIND||page==MACHINES||page==FORGET_PC){
     int start=nav.start(),total=nav.total,offset=remoteView["menuOffset"]|0;
     for(int row=0;row<7&&start+row<total;row++){
       int index=start+row,y=34+row*22;bool selected=nav.focus==snowball::Focus::Content&&index==nav.index;uint16_t color=selected?accent:card;
@@ -689,6 +751,11 @@ void draw(){
       else if(page==DISPLAY_LANGUAGE)label=index==0?tr(Ui::DisplayEnglish):tr(Ui::DisplayKorean);
       else if(page==INPUT_SETTINGS)label=index==0?tr(Ui::English):tr(Ui::Korean);
       else if(page==MIDDLEWARE_FIND)label=index==0?tr(Ui::FindMiddleware):index==1?tr(Ui::WifiSettings):tr(Ui::Back);
+      else if(page==FORGET_PC)label=index==0?tr(Ui::ForgetPc):tr(Ui::Back);
+      else if(page==MACHINES){
+        if(index<(int)pairings.count){bool online=hostEndpoints[index].seen&&millis()-hostEndpoints[index].seen<10000;label=(pairings.selected==index?String("* "):String(""))+(pairings.hosts[index].id.empty()?String(tr(Ui::PreviousPc)):String(pairings.hosts[index].name.c_str()))+" / "+String(online?tr(Ui::Available):tr(Ui::WifiOffline));}
+        else label=index==(int)pairings.count?tr(Ui::ScanAgain):index==(int)pairings.count+1?tr(Ui::PairPc):index==(int)pairings.count+2?tr(Ui::ForgetPc):tr(Ui::Back);
+      }
       else if(page==REMOTE_LIST){int local=index-offset;if(!listInitial&&String(remoteView["menuKind"]|"")==expectedMenu&&local>=0&&local<(int)remoteView["items"].size())label=remoteView["items"][local].as<String>();else label=tr(Ui::LoadingShort);}
       else if(index<scanCount)label=scanNetworks[index].ssid+" "+String(scanNetworks[index].rssi)+"dBm";else label=index==scanCount?tr(Ui::ScanAgain):index==scanCount+1?tr(Ui::HiddenNetwork):tr(Ui::ForgetWifi);
       bool glyph=false;if(page==REMOTE_LIST&&expectedMenu=="harnesses"){int local=index-offset;if(local>=0)glyph=harnessGlyph(12,y+2,remoteView["itemIcons"][local],selected?TFT_BLACK:TFT_WHITE);}
@@ -759,7 +826,7 @@ void setup(){
   String identity=String("snowball.controller.v1\nsnowball.device-m5stack\nphysical\n")+deviceId;uint8_t digest[32];
   mbedtls_md(mbedtls_md_info_from_type(MBEDTLS_MD_SHA256),(const unsigned char*)identity.c_str(),identity.length(),digest);controllerId="ctl_";
   for(int i=0;i<8;i++){char h[3];snprintf(h,3,"%02x",digest[i]);controllerId+=h;}
-  prefs.begin("snowball",false);pairKey=prefs.getString("pair","");wifiSsid=prefs.getString("ssid","");wifiPassword=prefs.getString("password","");WiFi.persistent(false);
+  prefs.begin("snowball",false);loadPairings();wifiSsid=prefs.getString("ssid","");wifiPassword=prefs.getString("password","");WiFi.persistent(false);
   input.korean=prefs.getBool("korean",false);displayKorean=prefs.getBool("displayKo",false);notice=tr(Ui::Welcome);
   WiFi.onEvent([](WiFiEvent_t type,WiFiEventInfo_t event){
     if(type==ARDUINO_EVENT_WIFI_SCAN_DONE)scanEventStatus.store(event.wifi_scan_done.status);
@@ -772,7 +839,7 @@ void setup(){
 }
 void loop(){
   M5.update();
-  if(M5.BtnA.pressedFor(2500)&&M5.BtnB.pressedFor(2500)&&M5.BtnC.pressedFor(2500)){prefs.remove("pair");pairKey="";hostEpoch="";notice=tr(Ui::ResetEnrollment);dirty=true;delay(500);}
+  if(M5.BtnA.pressedFor(2500)&&M5.BtnB.pressedFor(2500)&&M5.BtnC.pressedFor(2500)){prefs.remove("pair");prefs.remove("hosts");pairings={};pairKey="";hostEpoch="";reverseClient.stop();reverseReady=false;remoteView.clear();lastResponse=0;notice=tr(Ui::ResetEnrollment);dirty=true;delay(500);}
   uint32_t now=millis();bool pressed[]={M5.BtnA.isPressed(),M5.BtnB.isPressed(),M5.BtnC.isPressed()};
   for(int b=0;b<3;b++)buttonAction(b,gestures[b].update(now,pressed[b]));
   if(faces&&digitalRead(5)==LOW){Wire.requestFrom(0x08,1);if(Wire.available()){uint8_t c=Wire.read();if(c&&c!=0xff)keyboard(c);}}
@@ -808,8 +875,8 @@ void loop(){
     pending=false;pendingSend=false;pendingOp="";notice=tr(Ui::ResponseUnknown);dirty=true;
   }
   if(clearRemoteMenu&&!pending&&!wifiUi()&&(usbOnline()||(!hostEpoch.isEmpty()&&WiFi.status()==WL_CONNECTED))){clearRemoteMenu=false;request("back");}
-  if(!pending&&!scanRunning&&millis()-lastPoll>3500&&(usbOnline()||(!hostEpoch.isEmpty()&&WiFi.status()==WL_CONNECTED))&&page!=WIFI_LIST&&page!=WIFI_PASSWORD&&page!=CONFIRM&&page!=MIDDLEWARE_FIND)request("poll");
-  if(!usbOnline()&&!wifiUi()&&page!=MIDDLEWARE_FIND&&WiFi.status()==WL_CONNECTED&&hostEpoch.isEmpty()&&millis()-lastDiscovery>8000)discoverHost();
+  if(!pending&&!scanRunning&&millis()-lastPoll>3500&&(usbOnline()||(!hostEpoch.isEmpty()&&WiFi.status()==WL_CONNECTED))&&page!=WIFI_LIST&&page!=WIFI_PASSWORD&&page!=CONFIRM&&page!=MIDDLEWARE_FIND&&page!=MACHINES&&page!=FORGET_PC)request("poll");
+  if(!wifiUi()&&WiFi.status()==WL_CONNECTED&&millis()-lastDiscovery>(page==MACHINES?2000:8000)&&(page==MACHINES||(!usbOnline()&&hostEpoch.isEmpty()&&page!=FORGET_PC)))discoverHost();
   if(!pending&&!wifiUi()&&millis()-nextContentFetch>120){
     if(page==SESSION_CONTENT&&nav.index!=(remoteView["contentOffset"]|0)){nextContentFetch=millis();request("read",nav.index);}
     else if((page==REMOTE_LIST||page==EDITOR_POPUP)&&!listInitial&&String(remoteView["menuKind"]|"")==expectedMenu){int offset=remoteView["menuOffset"]|0;if(nav.start()!=offset){nextContentFetch=millis();request("browse",nav.index);}}

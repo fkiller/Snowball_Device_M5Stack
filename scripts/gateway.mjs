@@ -24,6 +24,12 @@ for(let i=0;i<args.length;i++){
 options.port=+options.port;
 if(!privateIp(options.bind)||!Number.isInteger(options.port)||options.port<1024||options.port>65535||!/^(?:COM[1-9][0-9]*|\/dev\/[a-zA-Z0-9._/-]+)$/.test(options.serial??'COM1'))throw Error('invalid_endpoint');
 if(!/^http:\/\/127\.0\.0\.1:[1-9][0-9]{0,4}$/.test(options.backend))throw Error('loopback_backend_required');
+// Identity comes from this actual middleware, never an IP or display name.
+const identityResponse=await fetch(options.backend+'/v1/snapshot',{headers:{Origin:options.backend},signal:AbortSignal.timeout(10000)});
+if(!identityResponse.ok)throw Error('middleware_identity_unavailable');
+const {hostId}=await identityResponse.json();
+if(!/^host_[a-f0-9]{32}$/.test(hostId))throw Error('invalid_middleware_identity');
+const host=Array.from(os.hostname()).slice(0,32).join('');
 const directory=path.join(root,'.local');fs.mkdirSync(directory,{recursive:true});
 // The hardware enrollment secret never enters the plugin worker or stdout.
 const keyFile=path.join(directory,'pairing.key');
@@ -88,7 +94,7 @@ if(options.serial){
       const changed=privateIp(r.ip)&&!r.ip.startsWith('127.')&&r.ip!==deviceAddress;
       if(changed)deviceAddress=r.ip;
       if(first||changed)fs.writeFileSync(path.join(directory,'device.json'),JSON.stringify({deviceId,ip:deviceAddress})+'\n',{mode:0o600});
-      sendSerial({type:'enroll',key,epoch,host:options.bind,port:options.port});
+      sendSerial({type:'enroll',key,epoch,host:options.bind,port:options.port,hostId,name:host});
       if(first)console.log(`Physical device ${deviceId}: FACES=${r.faces?'present':'absent'}, flash=${r.flashBytes}`);return;
     }
     if(r.type!=='request'||!deviceId||r.deviceId!==deviceId||!Number.isInteger(r.id)||r.id<1)return;
@@ -137,11 +143,11 @@ if(!options.bind.startsWith('127.')){
     let q;try{q=JSON.parse(bytes);}catch{return;}
     if(q.type!=='snowball.discover'||!/^[a-f0-9]{16}$/.test(q.nonce))return;
     try{await state();}catch{return;} // Only announce a reachable real middleware.
-    const host=shorten(os.hostname(),32),proof=`discover\n${q.nonce}\n${epoch}\n${options.bind}\n${options.port}\n${host}`;
-    udp.send(Buffer.from(JSON.stringify({type:'snowball.gateway',nonce:q.nonce,epoch,ip:options.bind,port:options.port,host,mac:sign(key,proof)})),remote.port,remote.address);
+    const proof=`discover\n${q.nonce}\n${epoch}\n${options.bind}\n${options.port}\n${host}`+(q.version===2?`\n${hostId}`:'');
+    udp.send(Buffer.from(JSON.stringify({type:'snowball.gateway',nonce:q.nonce,epoch,ip:options.bind,port:options.port,host,hostId,version:q.version===2?2:1,mac:sign(key,proof)})),remote.port,remote.address);
   });
-  udp.on('error',()=>console.error('LAN discovery unavailable; USB still works.'));
-  udp.bind(47770,'0.0.0.0');
+  udp.on('error',()=>console.error('M5Stack discovery socket error; check the configured LAN adapter.'));
+  await new Promise((resolve,reject)=>{udp.once('error',reject);udp.bind(47770,'0.0.0.0',()=>{udp.off('error',reject);resolve();});});
 }
 console.log(`M5Stack gateway: ${options.bind}:${options.port}; middleware stays on ${options.backend}.`);
 let reverse,reverseLogged=false;
@@ -155,6 +161,7 @@ function connectReverse(){
     let end;while((end=buffer.indexOf('\n'))>=0){const line=buffer.slice(0,end);buffer=buffer.slice(end+1);let frame;try{frame=JSON.parse(line);}catch{socket.destroy();return;}
       if(frame.type==='reverse-challenge'){
         if(frame.deviceId!==deviceId||!/^[a-f0-9]{16}$/.test(frame.nonce)){socket.destroy();return;}
+        if(frame.hostId&&frame.hostId!==hostId){socket.destroy();return;}
         socket.write(JSON.stringify({type:'reverse-auth',nonce:frame.nonce,epoch,mac:sign(key,`reverse\n${frame.nonce}\n${epoch}`)})+'\n');continue;
       }
       void (async()=>{
@@ -172,3 +179,4 @@ connectReverse();
 let closing=false;
 async function close(){if(closing)return;closing=true;clearInterval(timer);serial?.stdin.end();serial?.kill();reverse?.destroy();udp?.close();server.close();broker.close();await navigationWrite;if(process.connected)process.disconnect();}
 process.on('SIGINT',()=>void close());process.on('SIGTERM',()=>void close());
+if(process.connected)process.send({kind:'gateway-ready'});

@@ -97,6 +97,11 @@ enum class Ui {
   WifiOffline,
   Access,
   NativePolicy,
+  PairPc,
+  ForgetPc,
+  PreviousPc,
+  Available,
+  PairingStorageFailed,
 };
 inline const char* translate(Ui key,bool korean){
   static const char* const strings[][2]={
@@ -132,7 +137,7 @@ inline const char* translate(Ui key,bool korean){
     {"Saved Wi-Fi networks forgotten","저장한 Wi-Fi 삭제됨"},
     {"Enter Wi-Fi password","Wi-Fi 암호 입력"},
     {"Check status. Ctrl+U: clear draft","전송 상태 확인. Ctrl+U: 초안 삭제"},
-    {"Key differs. Hold A+B+C to reset","등록 키가 다릅니다. A+B+C 길게 눌러 초기화"},
+    {"PC key changed. Forget that PC first","PC 키 변경: 해당 PC부터 등록 해제하세요"},
     {"IME diagnostic / USB QA","USB IME 진단"},
     {"No native session content","네이티브 세션 내용 없음"},
     {"Connecting to middleware...","미들웨어 연결 중..."},
@@ -195,6 +200,11 @@ inline const char* translate(Ui key,bool korean){
     {"Offline","미연결"},
     {"Access","접근 정책"},
     {"Native policy","네이티브 정책"},
+    {"Pair PC: connect USB","PC 추가: USB로 연결"},
+    {"Forget selected PC","선택한 PC 등록 해제"},
+    {"Previously paired PC","기존 등록 PC"},
+    {"Available","발견됨"},
+    {"Pairing storage failed or full","PC 등록 저장 실패 또는 목록 가득 참"},
   };
   return strings[static_cast<size_t>(key)][korean?1:0];
 }

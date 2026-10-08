@@ -98,8 +98,8 @@ def main():
         run(['-m', 'platformio', 'run', '--project-conf', str(config)])
         run(['-m', 'platformio', 'run', '--project-conf', str(config), '--target', 'upload', '--upload-port', port])
     hello = read_hello(port)
-    if hello.get('firmware') != '0.2.2':
-        raise RuntimeError('Snowball firmware 0.2.2 is required. Rerun without --no-flash to install it.')
+    if hello.get('firmware') != '0.3.0':
+        raise RuntimeError('Snowball firmware 0.3.0 is required for multiple PCs. Rerun without --no-flash to install it; a full flash backup is made first.')
     args.output.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     args.output.write_text(json.dumps({'port': port, 'deviceId': hello['deviceId'], 'flashBytes': hello.get('flashBytes'),
         'faces': True, 'backup': str(backup) if backup else None}) + '\n', encoding='utf-8')
