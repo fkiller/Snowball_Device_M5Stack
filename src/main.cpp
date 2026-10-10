@@ -19,6 +19,7 @@
 #include "../firmware/i18n.h"
 #include "../firmware/connection.h"
 #include "../firmware/pairing.h"
+#include "../firmware/lan_pairing_crypto.h"
 #include "../firmware/footer_icons.h"
 using snowball::Ui;
 static bool displayKorean=false;
@@ -39,6 +40,9 @@ static String deviceId,controllerId,pairKey,hostIp,hostEpoch,bootId,discoverNonc
 static snowball::Pairings pairings;
 struct HostEndpoint {String ip,epoch;uint16_t port;uint32_t seen;HostEndpoint(String address="",String currentEpoch="",uint16_t currentPort=47771,uint32_t observed=0):ip(address),epoch(currentEpoch),port(currentPort),seen(observed){}};
 static HostEndpoint hostEndpoints[16];
+struct DiscoveryCandidate {String id,name,ip,epoch,nonce,ticket,publicKey;uint16_t port;uint32_t seen;bool pairable;DiscoveryCandidate(String identity="",String label="",String address="",String currentEpoch="",String query="",String token="",String point="",uint16_t service=47771,uint32_t observed=0,bool available=false):id(identity),name(label),ip(address),epoch(currentEpoch),nonce(query),ticket(token),publicKey(point),port(service),seen(observed),pairable(available){}};
+static DiscoveryCandidate discoveredHosts[16];
+static int discoveredCount=0;
 static String usbHostId;
 static uint16_t hostPort=47771;
 static uint32_t requestId=0,wireSeq=0,pendingId=0,lastUsb=0,lastPoll=0,lastHello=0,lastDiscovery=0,lastResponse=0,wifiStarted=0;
@@ -83,12 +87,12 @@ bool safeEqual(const String&a,const String&b){if(a.length()!=b.length())return f
 bool hex(const String&s,size_t length){if(s.length()!=length)return false;for(char c:s)if(!((c>='0'&&c<='9')||(c>='a'&&c<='f')))return false;return true;}
 String material(const char* direction,uint32_t seq,const String&payload){return String(direction)+"\n"+hostEpoch+"\n"+bootId+"\n"+String(seq)+"\n"+payload;}
 void serialJson(JsonDocument&doc){serializeJson(doc,Serial);Serial.println();}
-void hello(){StaticJsonDocument<384>d;d["type"]="hello";d["deviceId"]=deviceId;d["board"]="M5Stack";d["faces"]=faces;d["flashBytes"]=ESP.getFlashChipSize();d["ip"]=WiFi.status()==WL_CONNECTED?WiFi.localIP().toString():String("");d["firmware"]="0.3.0";serialJson(d);lastHello=millis();}
+void hello(){StaticJsonDocument<384>d;d["type"]="hello";d["deviceId"]=deviceId;d["board"]="M5Stack";d["faces"]=faces;d["flashBytes"]=ESP.getFlashChipSize();d["ip"]=WiFi.status()==WL_CONNECTED?WiFi.localIP().toString():String("");d["firmware"]="0.4.0";d["lanPairing"]=true;serialJson(d);lastHello=millis();}
 String selectedHost(){return pairings.selected<0?String(""):String(pairings.hosts[pairings.selected].id.c_str());}
 bool usbOnline(){return lastUsb&&millis()-lastUsb<6500&&selectedHost()==usbHostId;}
 bool savePairings(const snowball::Pairings& value){
   DynamicJsonDocument d(8192);d["version"]=1;d["selected"]=value.selected;auto list=d.createNestedArray("hosts");
-  for(size_t i=0;i<value.count;i++){auto h=list.createNestedObject();h["id"]=value.hosts[i].id;h["key"]=value.hosts[i].key;h["name"]=value.hosts[i].name;}
+  for(size_t i=0;i<value.count;i++){auto h=list.createNestedObject();h["id"]=value.hosts[i].id;h["key"]=value.hosts[i].key;h["name"]=value.hosts[i].name;h["confirmed"]=value.hosts[i].confirmed;}
   if(d.overflowed())return false;String raw;serializeJson(d,raw);return prefs.putString("hosts",raw)==raw.length();
 }
 void loadPairings(){
@@ -99,9 +103,10 @@ void loadPairings(){
       std::string id=h["id"]|"",key=h["key"]|"",name=h["name"]|"";
       if(id.empty()){if(!restored.migrateLegacy(key)){valid=false;break;}}
       else if(restored.find(id)>=0||restored.enroll(id,key,name)<0){valid=false;break;}
+      restored.hosts[restored.count-1].confirmed=h["confirmed"]|true;
     }
     int chosen=d["selected"]|-1;if(chosen<-1||chosen>=(int)restored.count)valid=false;
-    if(valid){restored.selected=chosen;pairings=restored;}
+    if(valid){restored.selected=chosen>=0&&!restored.hosts[chosen].confirmed?-1:chosen;pairings=restored;}
   } else if(!raw.length()){pairings.migrateLegacy(prefs.getString("pair","").c_str());if(pairings.count&&savePairings(pairings))prefs.remove("pair");}
   pairKey=pairings.selected<0?String(""):String(pairings.hosts[pairings.selected].key.c_str());
 }
@@ -112,7 +117,10 @@ bool selectHost(int index){
   pairings=next;pairKey=pairings.hosts[index].key.c_str();hostIp=hostEndpoints[index].ip;hostEpoch=hostEndpoints[index].epoch;hostPort=hostEndpoints[index].port;
   remoteView.clear();lastResponse=0;expectedMenu="";listInitial=false;menuHistory.clear();readerOffset=0;dirty=true;return true;
 }
-void openMachines(){page=MACHINES;nav.list(pairings.count+4,pairings.selected>=0?pairings.selected:pairings.count,1);notice=tr(Ui::PairPc);dirty=true;}
+int candidateFor(const String& id){for(int i=0;i<discoveredCount;i++)if(discoveredHosts[i].id==id)return i;return -1;}
+int newCandidate(int row){for(int i=0;i<discoveredCount;i++)if(pairings.find(discoveredHosts[i].id.c_str())<0&&row--==0)return i;return -1;}
+int machineCount(){int count=pairings.count;for(int i=0;i<discoveredCount;i++)if(pairings.find(discoveredHosts[i].id.c_str())<0)count++;return count;}
+void openMachines(){page=MACHINES;nav.list(machineCount()+3,pairings.selected>=0?pairings.selected:0,1);notice=tr(Ui::PairPc);dirty=true;}
 void toggleInputLanguage(){input.toggle();prefs.putBool("korean",input.korean);}
 bool middlewareOnline(){return lastResponse&&millis()-lastResponse<10000&&remoteView["connected"].as<bool>();}
 void acceptView(JsonVariantConst view){
@@ -209,25 +217,69 @@ void readReverse(){
 void discoverHost(){
   if(reverseReady&&reverseClient.connected()&&page!=MACHINES){notice=String(tr(Ui::MiddlewareConnected))+hostIp;dirty=true;request("poll");return;}
   if(WiFi.status()!=WL_CONNECTED){notice=tr(Ui::WifiRequired);dirty=true;return;}
-  if(!pairings.count){notice=tr(Ui::PairPc);dirty=true;return;}
-  discoverNonce=randomHex(8);StaticJsonDocument<160>d;d["type"]="snowball.discover";d["nonce"]=discoverNonce;d["version"]=2;String raw;serializeJson(d,raw);
+  discoverNonce=randomHex(8);StaticJsonDocument<224>d;d["type"]="snowball.discover";d["nonce"]=discoverNonce;d["version"]=3;d["deviceId"]=deviceId;String raw;serializeJson(d,raw);
   IPAddress broadcast=WiFi.localIP();IPAddress mask=WiFi.subnetMask();for(int i=0;i<4;i++)broadcast[i]|=~mask[i];
   discovery.beginPacket(broadcast,47770);discovery.print(raw);discovery.endPacket();lastDiscovery=millis();notice=tr(Ui::Discovering);dirty=true;
 }
-void readDiscovery(){int size=discovery.parsePacket();if(size<=0)return;if(size>768){discovery.flush();return;}char buffer[769];int n=discovery.read(buffer,768);buffer[n]=0;StaticJsonDocument<1024>d;
+void readDiscovery(){int size=discovery.parsePacket();if(size<=0)return;if(size>1024){discovery.flush();return;}char buffer[1025];int n=discovery.read(buffer,1024);buffer[n]=0;StaticJsonDocument<2048>d;
   if(deserializeJson(d,buffer)||String(d["type"]|"")!="snowball.gateway"||d["nonce"].as<String>()!=discoverNonce||millis()-lastDiscovery>8000)return;
   String epoch=d["epoch"].as<String>(),ip=d["ip"].as<String>(),host=d["host"].as<String>();int port=d["port"]|0;IPAddress candidate;
   if(!hex(epoch,32)||!candidate.fromString(ip)||candidate!=discovery.remoteIP()||port<1024||port>65535)return;
   for(int i=0;i<4;i++)if((candidate[i]&WiFi.subnetMask()[i])!=(WiFi.localIP()[i]&WiFi.subnetMask()[i]))return;
-  String id=d["hostId"].as<String>();if(!snowball::hostIdentity(id.c_str())||d["version"]!=2||host.length()>128)return;
+  String id=d["hostId"].as<String>();int version=d["version"]|0;if(!snowball::hostIdentity(id.c_str())||(version!=2&&version!=3)||host.length()>128)return;
+  for(char c:host)if((uint8_t)c<32||c==127)return;
   String proof="discover\n"+discoverNonce+"\n"+epoch+"\n"+ip+"\n"+String(port)+"\n"+host+"\n"+id;
-  int index=pairings.find(id.c_str());if(index<0)index=pairings.find("");if(index<0)return;
-  const String key=pairings.hosts[index].key.c_str();if(!safeEqual(d["mac"].as<String>(),hmacKey(key,proof)))return;
+  int exactIndex=pairings.find(id.c_str()),index=exactIndex;if(index<0)index=pairings.find("");
+  bool authenticated=index>=0&&safeEqual(d["mac"].as<String>(),hmacKey(pairings.hosts[index].key.c_str(),proof));
+  if(!authenticated){
+    // Unknown PCs are inventory, never authenticated control or implicit trust.
+    if(version!=3||(exactIndex>=0&&pairings.hosts[exactIndex].confirmed))return;
+    bool pairable=d["pairable"]|false;String ticket=d["ticket"]|"",publicKey=d["publicKey"]|"";
+    if(pairable&&(!hex(ticket,32)||!hex(publicKey,130)||!publicKey.startsWith("04")))return;
+    int row=candidateFor(id);if(row<0&&page!=MACHINES){for(int i=0;i<discoveredCount;i++)if(millis()-discoveredHosts[i].seen>20000&&pairings.find(discoveredHosts[i].id.c_str())<0){row=i;break;}}
+    if(row<0){if(discoveredCount>=16)return;row=discoveredCount++;}
+    discoveredHosts[row]={id,host,ip,epoch,discoverNonce,ticket,publicKey,(uint16_t)port,millis(),pairable};dirty=true;
+    // First boot must offer a visible choice instead of timing out on a PC that
+    // cannot be selected yet. An existing user's selected PC is never replaced.
+    if(pairings.selected<0&&(page==CONNECT_STATUS||page==MIDDLEWARE_FIND)){connection.cancel();openMachines();}
+    return;
+  }
+  const String key=pairings.hosts[index].key.c_str();
   if(pairings.hosts[index].id.empty()||pairings.hosts[index].name!=host.c_str()){
     auto next=pairings;if(next.enroll(id.c_str(),key.c_str(),host.c_str())!=index||!savePairings(next)){notice=tr(Ui::PairingStorageFailed);dirty=true;return;}pairings=next;
   }
+  if(!pairings.hosts[index].confirmed){auto next=pairings;next.hosts[index].confirmed=true;if(!savePairings(next)){notice=tr(Ui::PairingStorageFailed);dirty=true;return;}pairings=next;}
   hostEndpoints[index]={ip,epoch,(uint16_t)port,millis()};dirty=true;
   if(index==pairings.selected&&!pending){hostIp=ip;hostPort=port;hostEpoch=epoch;if(page!=MACHINES&&page!=FORGET_PC){notice=String(tr(Ui::MiddlewareFound))+host;request("poll");}}
+}
+bool pairingHttp(const DiscoveryCandidate& endpoint,const char* route,const String& body,JsonDocument& reply){
+  HTTPClient http;WiFiClient client;http.setConnectTimeout(1500);http.setTimeout(3000);
+  if(!http.begin(client,"http://"+endpoint.ip+":"+String(endpoint.port)+route))return false;
+  http.addHeader("Content-Type","application/json");int status=http.POST(body);
+  if(status!=200||http.getSize()>2048){http.end();return false;}
+  String raw=http.getString();http.end();return raw.length()<=2048&&!deserializeJson(reply,raw);
+}
+bool pairCandidate(int candidate){
+  if(pendingSend||candidate<0||candidate>=discoveredCount||WiFi.status()!=WL_CONNECTED)return false;
+  DiscoveryCandidate endpoint=discoveredHosts[candidate];
+  if(!endpoint.pairable||millis()-endpoint.seen>15000)return false;
+  notice=tr(Ui::Pairing);dirty=true;draw();
+  snowball::LanKeyExchange exchange;String publicKey;
+  if(!exchange.generate(publicKey))return false;
+  String aad="snowball.pair.v3\n"+endpoint.id+"\n"+deviceId+"\n"+endpoint.nonce+"\n"+endpoint.ticket+"\n"+endpoint.epoch+"\n"+endpoint.publicKey+"\n"+publicKey;
+  StaticJsonDocument<768> outgoing;outgoing["hostId"]=endpoint.id;outgoing["deviceId"]=deviceId;outgoing["nonce"]=endpoint.nonce;outgoing["ticket"]=endpoint.ticket;outgoing["publicKey"]=publicKey;
+  String raw;serializeJson(outgoing,raw);StaticJsonDocument<2048> reply;
+  if(!pairingHttp(endpoint,"/pair",raw,reply)||String(reply["type"]|"")!="snowball.pair"||reply["version"]!=3||reply["hostId"].as<String>()!=endpoint.id||reply["deviceId"].as<String>()!=deviceId||reply["nonce"].as<String>()!=endpoint.nonce||reply["ticket"].as<String>()!=endpoint.ticket||reply["epoch"].as<String>()!=endpoint.epoch)return false;
+  String key;if(!exchange.decrypt(endpoint.publicKey,aad,reply["iv"].as<String>(),reply["ciphertext"].as<String>(),reply["tag"].as<String>(),key)||!hex(key,64))return false;
+  // Save a provisional key before the PC commits. A lost acceptance receipt can
+  // recover via a fresh signed discovery without replacing another PC's key.
+  auto staged=pairings;int index=staged.stage(endpoint.id.c_str(),key.c_str(),endpoint.name.c_str());
+  if(index<0||!savePairings(staged)){notice=tr(Ui::PairingStorageFailed);dirty=true;return false;}pairings=staged;nav.index=index;
+  outgoing.remove("publicKey");outgoing["mac"]=hmacKey(key,"pair-confirm\n"+aad);raw="";serializeJson(outgoing,raw);reply.clear();
+  if(!pairingHttp(endpoint,"/pair/confirm",raw,reply)||String(reply["type"]|"")!="snowball.paired"||reply["version"]!=3||reply["hostId"].as<String>()!=endpoint.id||reply["deviceId"].as<String>()!=deviceId||reply["nonce"].as<String>()!=endpoint.nonce||reply["ticket"].as<String>()!=endpoint.ticket||reply["epoch"].as<String>()!=endpoint.epoch||!safeEqual(reply["mac"].as<String>(),hmacKey(key,"pair-accepted\n"+aad)))return false;
+  auto confirmed=pairings;confirmed.hosts[index].confirmed=true;
+  if(!savePairings(confirmed)){notice=tr(Ui::PairingStorageFailed);dirty=true;return false;}pairings=confirmed;
+  hostEndpoints[index]={endpoint.ip,endpoint.epoch,endpoint.port,millis()};return selectHost(index);
 }
 void startWifiAssociation(){
   // A successful background reconnect must persist its original credentials,
@@ -338,7 +390,7 @@ void syncNavigation(){
   else if(page==ACTIONS)nav.configure(5,7,false);
   else if(page==DISPLAY_LANGUAGE||page==INPUT_SETTINGS)nav.configure(2,7,false);
   else if(page==MIDDLEWARE_FIND)nav.configure(3,7,false);
-  else if(page==MACHINES)nav.configure(pairings.count+4,7,false);
+  else if(page==MACHINES)nav.configure(machineCount()+3,7,false);
   else if(page==FORGET_PC)nav.configure(2,7,false);
   else if(page==CONNECT_STATUS)nav.configure(4,4,false);
   else if(page==WIFI_LIST)nav.configure(scanCount+3,7,false);
@@ -414,10 +466,15 @@ void select(){
     if(cursor<2)menuHistory.remember((int)page,nav);
     if(cursor==0){openMachines();discoverHost();}else if(cursor==1)scanWifi();else back();
   } else if(page==MACHINES){
-    if(cursor<(int)pairings.count){if(selectHost(cursor)){connection.middleware(millis());page=CONNECT_STATUS;nav.list(4,0,1);if(hostEpoch.length())request("poll");else discoverHost();}else{notice=tr(Ui::Wait);dirty=true;}}
-    else if(cursor==(int)pairings.count)discoverHost();
-    else if(cursor==(int)pairings.count+1){notice=tr(Ui::PairPc);dirty=true;}
-    else if(cursor==(int)pairings.count+2){if(pairings.selected>=0&&!pendingSend){page=FORGET_PC;nav.list(2,1,1);dirty=true;}}
+    if(cursor<machineCount()){
+      bool ready=false;
+      if(cursor<(int)pairings.count&&pairings.hosts[cursor].confirmed)ready=selectHost(cursor);
+      else ready=pairCandidate(cursor<(int)pairings.count?candidateFor(pairings.hosts[cursor].id.c_str()):newCandidate(cursor-pairings.count));
+      if(ready){connection.middleware(millis());page=CONNECT_STATUS;nav.list(4,0,1);if(hostEpoch.length())request("poll");else discoverHost();}
+      else {nav.configure(machineCount()+3,7,false);if(notice!=tr(Ui::PairingStorageFailed))notice=tr(Ui::PairingFailed);dirty=true;}
+    }
+    else if(cursor==machineCount())discoverHost();
+    else if(cursor==machineCount()+1){if(pairings.selected>=0&&!pendingSend){page=FORGET_PC;nav.list(2,1,1);dirty=true;}}
     else back();
   } else if(page==FORGET_PC){
     if(cursor==1)openMachines();else if(!pendingSend){int old=pairings.selected;auto next=pairings;if(next.remove(old)&&savePairings(next)){for(int i=old;i<(int)next.count;i++)hostEndpoints[i]=hostEndpoints[i+1];hostEndpoints[next.count]={};pairings=next;reverseClient.stop();reverseReady=false;pairKey="";hostEpoch="";hostIp="";pending=false;remoteView.clear();lastResponse=0;openMachines();}else{notice=tr(Ui::PairingStorageFailed);dirty=true;}}
@@ -753,8 +810,9 @@ void draw(){
       else if(page==MIDDLEWARE_FIND)label=index==0?tr(Ui::FindMiddleware):index==1?tr(Ui::WifiSettings):tr(Ui::Back);
       else if(page==FORGET_PC)label=index==0?tr(Ui::ForgetPc):tr(Ui::Back);
       else if(page==MACHINES){
-        if(index<(int)pairings.count){bool online=hostEndpoints[index].seen&&millis()-hostEndpoints[index].seen<10000;label=(pairings.selected==index?String("* "):String(""))+(pairings.hosts[index].id.empty()?String(tr(Ui::PreviousPc)):String(pairings.hosts[index].name.c_str()))+" / "+String(online?tr(Ui::Available):tr(Ui::WifiOffline));}
-        else label=index==(int)pairings.count?tr(Ui::ScanAgain):index==(int)pairings.count+1?tr(Ui::PairPc):index==(int)pairings.count+2?tr(Ui::ForgetPc):tr(Ui::Back);
+        if(index<(int)pairings.count){bool online=hostEndpoints[index].seen&&millis()-hostEndpoints[index].seen<10000;int candidate=candidateFor(pairings.hosts[index].id.c_str());if(!pairings.hosts[index].confirmed)online=candidate>=0&&millis()-discoveredHosts[candidate].seen<15000;label=(pairings.selected==index?String("* "):String(""))+(pairings.hosts[index].id.empty()?String(tr(Ui::PreviousPc)):String(pairings.hosts[index].name.c_str()))+" / "+String(pairings.hosts[index].confirmed?tr(Ui::Registered):tr(Ui::NewPc))+" / "+String(online?tr(Ui::Available):tr(Ui::WifiOffline));}
+        else if(index<machineCount()){const auto& candidate=discoveredHosts[newCandidate(index-pairings.count)];label=candidate.name+" / "+tr(Ui::NewPc)+" / "+(millis()-candidate.seen<15000?tr(Ui::Available):tr(Ui::WifiOffline));}
+        else label=index==machineCount()?tr(Ui::ScanAgain):index==machineCount()+1?tr(Ui::ForgetPc):tr(Ui::Back);
       }
       else if(page==REMOTE_LIST){int local=index-offset;if(!listInitial&&String(remoteView["menuKind"]|"")==expectedMenu&&local>=0&&local<(int)remoteView["items"].size())label=remoteView["items"][local].as<String>();else label=tr(Ui::LoadingShort);}
       else if(index<scanCount)label=scanNetworks[index].ssid+" "+String(scanNetworks[index].rssi)+"dBm";else label=index==scanCount?tr(Ui::ScanAgain):index==scanCount+1?tr(Ui::HiddenNetwork):tr(Ui::ForgetWifi);

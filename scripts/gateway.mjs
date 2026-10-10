@@ -9,6 +9,7 @@ import {randomBytes} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
 import readline from 'node:readline';
 import {DeviceNavigation} from '../src/navigation.mjs';
+import {LanPairing} from '../src/lan-pairing.mjs';
 import {translate} from '../src/i18n.mjs';
 import {ReplayGuard,sign,material,privateIp,MAX_FRAME,controllerIdForDevice} from '../src/protocol.mjs';
 
@@ -34,13 +35,14 @@ const directory=path.join(root,'.local');fs.mkdirSync(directory,{recursive:true}
 // The hardware enrollment secret never enters the plugin worker or stdout.
 const keyFile=path.join(directory,'pairing.key');
 if(!fs.existsSync(keyFile))fs.writeFileSync(keyFile,randomBytes(32).toString('hex'),{mode:0o600,flag:'wx'});
-const key=fs.readFileSync(keyFile,'utf8').trim();if(!/^[a-f0-9]{64}$/.test(key))throw Error('invalid_pairing_key');
+let key=fs.readFileSync(keyFile,'utf8').trim();if(!/^[a-f0-9]{64}$/.test(key))throw Error('invalid_pairing_key');
 const epoch=randomBytes(16).toString('hex'),guard=new ReplayGuard();
+const lanPairing=new LanPairing({hostId,epoch});
 let deviceId=null,deviceAddress=null;try{const saved=JSON.parse(fs.readFileSync(path.join(directory,'device.json'),'utf8'));deviceId=saved.deviceId;deviceAddress=saved.ip;if(!/^m5-[a-f0-9]{12}$/.test(deviceId))deviceId=null;}catch{}
 if(options.device)deviceAddress=options.device;
 if(deviceAddress&&(!privateIp(deviceAddress)||deviceAddress.startsWith('127.')))throw Error('private_device_address_required');
 if(options.device&&deviceId)fs.writeFileSync(path.join(directory,'device.json'),JSON.stringify({deviceId,ip:deviceAddress})+'\n',{mode:0o600});
-let serial,lastSeen=0,usbSeen=0,busy=false;
+let serial,reverse,reverseLogged=false,lastSeen=0,usbSeen=0,busy=false;
 let view={message:translate('en','unavailable'),items:[],connected:false};
 async function api(route,body) {
   if(!deviceId)throw Error('physical_device_required');
@@ -108,9 +110,28 @@ async function body(req){let chunks=[],size=0;for await(const c of req){size+=c.
 const respond=(res,status,data)=>{const raw=JSON.stringify(data);res.writeHead(status,{'Content-Type':'application/json','Content-Length':Buffer.byteLength(raw),'Cache-Control':'no-store'});res.end(raw);};
 const server=http.createServer(async(req,res)=>{
   req.setTimeout(5000,()=>req.destroy());
+  const peer=req.socket.remoteAddress?.replace(/^::ffff:/,'');
+  if(req.method==='POST'&&['/pair','/pair/confirm'].includes(req.url)){
+    if(req.headers.origin!==undefined||!privateIp(peer)||peer.startsWith('127.'))return respond(res,403,{error:'pairing_unavailable'});
+    try{
+      const request=await body(req);
+      if(deviceId&&(req.url==='/pair'||deviceId!==request.deviceId))return respond(res,403,{error:'pairing_unavailable'});
+      if(req.url==='/pair')return respond(res,200,lanPairing.exchange(request,peer));
+      const receipt=lanPairing.confirm(request,peer);
+      if(deviceId&&receipt.key!==key)return respond(res,403,{error:'pairing_unavailable'});
+      // Persist only after the board proves receipt of the encrypted host key.
+      fs.writeFileSync(keyFile,receipt.key,{mode:0o600});
+      fs.writeFileSync(path.join(directory,'device.json'),JSON.stringify({deviceId:receipt.deviceId,ip:peer})+'\n',{mode:0o600});
+      key=receipt.key;deviceId=receipt.deviceId;deviceAddress=peer;
+      console.log('M5Stack LAN enrollment confirmed; existing controller selections are preserved.');
+      return respond(res,200,{type:'snowball.paired',version:3,hostId,deviceId,nonce:request.nonce,ticket:request.ticket,epoch,mac:receipt.mac});
+    }catch{return respond(res,403,{error:'pairing_rejected'});}
+  }
   if(req.method!=='POST'||req.url!=='/device'||!privateIp(req.socket.remoteAddress?.replace(/^::ffff:/,'')))return respond(res,403,{error:'endpoint_denied'});
   let frame;
-  try{frame=await body(req);const a=guard.accept(key,epoch,frame);const peer=req.socket.remoteAddress?.replace(/^::ffff:/,'');if(peer!==options.bind&&!peer?.startsWith('127.'))lastSeen=Date.now();if(busy)throw Error('gateway_busy');busy=true;
+  try{frame=await body(req);const a=guard.accept(key,epoch,frame);const peer=req.socket.remoteAddress?.replace(/^::ffff:/,'');
+    if(!peer.startsWith('127.')&&deviceId&&deviceAddress!==peer){fs.writeFileSync(path.join(directory,'device.json'),JSON.stringify({deviceId,ip:peer})+'\n',{mode:0o600});deviceAddress=peer;reverse?.destroy();}
+    if(peer!==options.bind&&!peer?.startsWith('127.'))lastSeen=Date.now();if(busy)throw Error('gateway_busy');busy=true;
     let result;try{result=await action(a);}catch(error){result=fault(error);}finally{busy=false;}
     const payload=JSON.stringify(result);respond(res,200,{epoch,boot:frame.boot,seq:frame.seq,payload,mac:sign(key,material('response',epoch,frame.boot,frame.seq,payload))});
   }catch{respond(res,403,{error:'request_rejected'});}
@@ -142,7 +163,15 @@ if(!options.bind.startsWith('127.')){
     if(Date.now()-window>1000){window=Date.now();count=0;}if(++count>10)return;
     let q;try{q=JSON.parse(bytes);}catch{return;}
     if(q.type!=='snowball.discover'||!/^[a-f0-9]{16}$/.test(q.nonce))return;
-    try{await state();}catch{return;} // Only announce a reachable real middleware.
+    if(q.version===3){
+      if(!/^m5-[a-f0-9]{12}$/.test(q.deviceId??''))return;
+      // Health does not depend on a board having been enrolled already.
+      try{const res=await fetch(options.backend+'/v1/snapshot',{headers:{Origin:options.backend},signal:AbortSignal.timeout(3000)});if(!res.ok||(await res.json()).hostId!==hostId)return;}catch{return;}
+      const pairing=!deviceId?lanPairing.offer({nonce:q.nonce,deviceId:q.deviceId,peer:remote.address}):null;
+      const proof=`discover\n${q.nonce}\n${epoch}\n${options.bind}\n${options.port}\n${host}\n${hostId}`;
+      udp.send(Buffer.from(JSON.stringify({type:'snowball.gateway',version:3,nonce:q.nonce,epoch,ip:options.bind,port:options.port,host,hostId,mac:sign(key,proof),pairable:!!pairing,...(pairing?{ticket:pairing.ticket,publicKey:pairing.publicKey}:{})})),remote.port,remote.address);return;
+    }
+    try{await state();}catch{return;} // Legacy firmware knows only enrolled PCs.
     const proof=`discover\n${q.nonce}\n${epoch}\n${options.bind}\n${options.port}\n${host}`+(q.version===2?`\n${hostId}`:'');
     udp.send(Buffer.from(JSON.stringify({type:'snowball.gateway',nonce:q.nonce,epoch,ip:options.bind,port:options.port,host,hostId,version:q.version===2?2:1,mac:sign(key,proof)})),remote.port,remote.address);
   });
@@ -150,7 +179,6 @@ if(!options.bind.startsWith('127.')){
   await new Promise((resolve,reject)=>{udp.once('error',reject);udp.bind(47770,'0.0.0.0',()=>{udp.off('error',reject);resolve();});});
 }
 console.log(`M5Stack gateway: ${options.bind}:${options.port}; middleware stays on ${options.backend}.`);
-let reverse,reverseLogged=false;
 function connectReverse(){
   if(reverse||!deviceAddress||!deviceId)return;
   const socket=net.connect({host:deviceAddress,port:47774,...(options.bind.startsWith('127.')?{}:{localAddress:options.bind})});reverse=socket;reverseLogged=false;let buffer='';

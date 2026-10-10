@@ -4,7 +4,7 @@
 namespace snowball {
 inline bool lowerHex(const std::string& s,size_t length){if(s.size()!=length)return false;for(char c:s)if(!((c>='0'&&c<='9')||(c>='a'&&c<='f')))return false;return true;}
 inline bool hostIdentity(const std::string& s){return s.size()==37&&s.substr(0,5)=="host_"&&lowerHex(s.substr(5),32);}
-struct PairedHost {std::string id,key,name;};
+struct PairedHost {std::string id,key,name;bool confirmed;PairedHost(std::string identity="",std::string secret="",std::string label="",bool accepted=true):id(identity),key(secret),name(label),confirmed(accepted){}};
 struct Pairings {
   static constexpr size_t Capacity=16;
   std::array<PairedHost,Capacity> hosts{};
@@ -22,7 +22,12 @@ struct Pairings {
     hosts[i]={id,key,name};return i;
   }
   bool migrateLegacy(const std::string& key){if(!lowerHex(key,64)||count)return false;hosts[count++]={"",key,"Previously paired PC"};selected=0;return true;}
-  bool choose(int i,bool sending){if(sending||i<0||(size_t)i>=count)return false;selected=i;return true;}
+  int stage(const std::string& id,const std::string& key,const std::string& name){
+    int i=find(id);if(i>=0&&hosts[i].confirmed)return -1;
+    if(i>=0){if(!lowerHex(key,64)||name.size()>128)return -1;hosts[i]={id,key,name,false};return i;}
+    i=enroll(id,key,name);if(i>=0)hosts[i].confirmed=false;return i;
+  }
+  bool choose(int i,bool sending){if(sending||i<0||(size_t)i>=count||!hosts[i].confirmed)return false;selected=i;return true;}
   bool remove(int i){if(i<0||(size_t)i>=count)return false;for(size_t n=i;n+1<count;n++)hosts[n]=hosts[n+1];hosts[--count]={};if(selected==i)selected=-1;else if(selected>i)--selected;return true;}
 };
 }

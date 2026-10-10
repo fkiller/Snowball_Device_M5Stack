@@ -102,6 +102,9 @@ enum class Ui {
   PreviousPc,
   Available,
   PairingStorageFailed,
+  NewPc,
+  Pairing,
+  PairingFailed,
 };
 inline const char* translate(Ui key,bool korean){
   static const char* const strings[][2]={
@@ -116,7 +119,7 @@ inline const char* translate(Ui key,bool korean){
     {"PC connected / Wi-Fi","Wi-Fi로 PC 연결됨"},
     {"Middleware connected: ","미들웨어 연결됨: "},
     {"Wi-Fi connection required","Wi-Fi 연결이 필요합니다"},
-    {"Enroll the device over USB first","USB로 최초 기기 등록이 필요합니다"},
+    {"Select a discovered PC to pair","검색된 PC를 선택해 등록하세요"},
     {"Finding local middleware...","로컬 미들웨어 검색 중..."},
     {"Middleware found: ","미들웨어 발견: "},
     {"No 2.4GHz access points","2.4GHz AP 없음"},
@@ -200,11 +203,14 @@ inline const char* translate(Ui key,bool korean){
     {"Offline","미연결"},
     {"Access","접근 정책"},
     {"Native policy","네이티브 정책"},
-    {"Pair PC: connect USB","PC 추가: USB로 연결"},
+    {"Select a PC to pair or connect","PC를 선택해 등록하거나 연결하세요"},
     {"Forget selected PC","선택한 PC 등록 해제"},
     {"Previously paired PC","기존 등록 PC"},
     {"Available","발견됨"},
     {"Pairing storage failed or full","PC 등록 저장 실패 또는 목록 가득 참"},
+    {"New","새 PC"},
+    {"Pairing selected PC...","선택한 PC 등록 중..."},
+    {"Pairing unavailable. Search again","등록할 수 없습니다. 다시 검색하세요"},
   };
   return strings[static_cast<size_t>(key)][korean?1:0];
 }

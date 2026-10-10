@@ -12,6 +12,10 @@ int main(){
   assert(p.enroll("hostname",keyA,"Invalid")<0);
   assert(p.remove(0));assert(p.selected==0);assert(p.hosts[0].id==b);
   assert(p.remove(0));assert(p.selected==-1);
+  assert(p.stage(a,keyA,"Pending PC")==0);assert(!p.hosts[0].confirmed);assert(!p.choose(0,false));
+  assert(p.stage(a,keyB,"Retry PC")==0);assert(p.hosts[0].key==keyB);
+  p.hosts[0].confirmed=true;assert(p.choose(0,false));assert(p.stage(a,keyA,"Replace pinned PC")<0);
+  assert(p.remove(0));assert(p.selected==-1);
   for(size_t i=0;i<snowball::Pairings::Capacity;i++){char h[38];snprintf(h,sizeof(h),"host_%032x",(unsigned)i);assert(p.enroll(h,keyA,"PC")==(int)i);}
   assert(p.enroll(a,keyA,"Overflow")<0);assert(p.count==16);
 }
