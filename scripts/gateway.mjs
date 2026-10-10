@@ -16,13 +16,15 @@ import {ReplayGuard,sign,material,privateIp,MAX_FRAME,controllerIdForDevice} fro
 const root=fileURLToPath(new URL('..',import.meta.url));
 process.on('message',message=>{if(message==='snowball.stop')process.emit('SIGINT');});
 process.on('disconnect',()=>process.emit('SIGINT'));
-const args=process.argv.slice(2),options={bind:'127.0.0.1',port:47771,backend:'http://127.0.0.1:8765',python:process.env.SNOWBALL_M5_PYTHON??'python'};
+const args=process.argv.slice(2),options={bind:'127.0.0.1',port:process.env.SNOWBALL_M5_HTTP_PORT??47771,backend:'http://127.0.0.1:8765',python:process.env.SNOWBALL_M5_PYTHON??'python'};
 for(let i=0;i<args.length;i++){
   const name=args[i].replace(/^--/,'');
   if(!['bind','port','backend','python','serial','device'].includes(name)||!args[i+1])throw Error('Usage: gateway.mjs [--serial COM7] [--bind PRIVATE_IPV4] [--device PAIRED_DEVICE_IPV4] [--port PORT] [--backend LOOPBACK_URL] [--python PATH]');
   options[name]=args[++i];
 }
 options.port=+options.port;
+const discoveryPort=Number(process.env.SNOWBALL_M5_DISCOVERY_PORT??47770),brokerPort=Number(process.env.SNOWBALL_M5_BROKER_PORT??47772);
+if(![discoveryPort,brokerPort].every(port=>Number.isInteger(port)&&port>=1024&&port<=65535))throw Error('invalid_discovery_port');
 if(!privateIp(options.bind)||!Number.isInteger(options.port)||options.port<1024||options.port>65535||!/^(?:COM[1-9][0-9]*|\/dev\/[a-zA-Z0-9._/-]+)$/.test(options.serial??'COM1'))throw Error('invalid_endpoint');
 if(!/^http:\/\/127\.0\.0\.1:[1-9][0-9]{0,4}$/.test(options.backend))throw Error('loopback_backend_required');
 // Identity comes from this actual middleware, never an IP or display name.
@@ -111,13 +113,15 @@ startSerial();
 // Native USB maintenance releases only this UART. MK20, harness workers and
 // authenticated M5Stack LAN traffic continue to run throughout the operation.
 process.on('message',async message=>{
-  if(message?.kind!=='m5-usb-control'||!Number.isSafeInteger(message.id))return;
-  if(message.port!==options.serial)return process.send?.({kind:'m5-usb-result',id:message.id,ok:true});
+  if(!['m5-usb-control','device-usb-control'].includes(message?.kind)||!Number.isSafeInteger(message.id))return;
+  if(message.kind==='device-usb-control'&&message.profile!=='m5stack')return;
+  const resultKind=message.kind==='m5-usb-control'?'m5-usb-result':'device-usb-result';
+  if(message.port!==options.serial)return process.send?.({kind:resultKind,id:message.id,ok:true});
   if(message.action==='release'){
     serialSuspended=true;const current=serial;
     if(current)await new Promise(resolve=>{const timer=setTimeout(()=>current.kill(),2500);current.once('close',()=>{clearTimeout(timer);resolve();});current.stdin.end();});
-    process.send?.({kind:'m5-usb-result',id:message.id,ok:true});
-  }else if(message.action==='resume'){serialSuspended=false;startSerial();process.send?.({kind:'m5-usb-result',id:message.id,ok:true});}
+    process.send?.({kind:resultKind,id:message.id,ok:true});
+  }else if(message.action==='resume'){serialSuspended=false;startSerial();process.send?.({kind:resultKind,id:message.id,ok:true});}
 });
 async function body(req){let chunks=[],size=0;for await(const c of req){size+=c.length;if(size>MAX_FRAME*2)throw Error('body_limit');chunks.push(c);}return JSON.parse(Buffer.concat(chunks).toString('utf8'));}
 const respond=(res,status,data)=>{const raw=JSON.stringify(data);res.writeHead(status,{'Content-Type':'application/json','Content-Length':Buffer.byteLength(raw),'Cache-Control':'no-store'});res.end(raw);};
@@ -167,7 +171,7 @@ const broker=http.createServer(async(req,res)=>{
   }catch{respond(res,503,{error:'device_unavailable'});}
 });
 broker.requestTimeout=5000;broker.maxConnections=4;
-await new Promise((resolve,reject)=>{broker.once('error',reject);broker.listen(47772,'127.0.0.1',resolve);});
+await new Promise((resolve,reject)=>{broker.once('error',reject);broker.listen(brokerPort,'127.0.0.1',resolve);});
 let udp;
 if(!options.bind.startsWith('127.')){
   udp=dgram.createSocket('udp4');let window=0,count=0;
@@ -189,7 +193,7 @@ if(!options.bind.startsWith('127.')){
     udp.send(Buffer.from(JSON.stringify({type:'snowball.gateway',nonce:q.nonce,epoch,ip:options.bind,port:options.port,host,hostId,version:q.version===2?2:1,mac:sign(key,proof)})),remote.port,remote.address);
   });
   udp.on('error',()=>console.error('M5Stack discovery socket error; check the configured LAN adapter.'));
-  await new Promise((resolve,reject)=>{udp.once('error',reject);udp.bind(47770,'0.0.0.0',()=>{udp.off('error',reject);resolve();});});
+  await new Promise((resolve,reject)=>{udp.once('error',reject);udp.bind(discoveryPort,'0.0.0.0',()=>{udp.off('error',reject);resolve();});});
 }
 console.log(`M5Stack gateway: ${options.bind}:${options.port}; middleware stays on ${options.backend}.`);
 function connectReverse(){
