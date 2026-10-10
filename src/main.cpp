@@ -20,6 +20,7 @@
 #include "../firmware/connection.h"
 #include "../firmware/pairing.h"
 #include "../firmware/lan_pairing_crypto.h"
+#include "../firmware/version.h"
 #include "../firmware/footer_icons.h"
 using snowball::Ui;
 static bool displayKorean=false;
@@ -87,7 +88,7 @@ bool safeEqual(const String&a,const String&b){if(a.length()!=b.length())return f
 bool hex(const String&s,size_t length){if(s.length()!=length)return false;for(char c:s)if(!((c>='0'&&c<='9')||(c>='a'&&c<='f')))return false;return true;}
 String material(const char* direction,uint32_t seq,const String&payload){return String(direction)+"\n"+hostEpoch+"\n"+bootId+"\n"+String(seq)+"\n"+payload;}
 void serialJson(JsonDocument&doc){serializeJson(doc,Serial);Serial.println();}
-void hello(){StaticJsonDocument<384>d;d["type"]="hello";d["deviceId"]=deviceId;d["board"]="M5Stack";d["faces"]=faces;d["flashBytes"]=ESP.getFlashChipSize();d["ip"]=WiFi.status()==WL_CONNECTED?WiFi.localIP().toString():String("");d["firmware"]="0.4.0";d["lanPairing"]=true;serialJson(d);lastHello=millis();}
+void hello(){StaticJsonDocument<768>d;d["type"]="hello";d["deviceId"]=deviceId;d["board"]="M5Stack";d["faces"]=faces;d["flashBytes"]=ESP.getFlashChipSize();d["ip"]=WiFi.status()==WL_CONNECTED?WiFi.localIP().toString():String("");d["firmware"]=SNOWBALL_FIRMWARE_VERSION;d["lanPairing"]=true;d["usbSetup"]=true;d["wifiConfigured"]=prefs.getString("ssid","").length()>0;d["wifiSsid"]=prefs.getString("ssid","");d["wifiConnected"]=WiFi.status()==WL_CONNECTED;serialJson(d);lastHello=millis();}
 String selectedHost(){return pairings.selected<0?String(""):String(pairings.hosts[pairings.selected].id.c_str());}
 bool usbOnline(){return lastUsb&&millis()-lastUsb<6500&&selectedHost()==usbHostId;}
 bool savePairings(const snowball::Pairings& value){
@@ -615,6 +616,9 @@ void handleSerial(const String&raw){
     scanWifi();return;
   }
   if(type=="wifi-provision"){
+    // The desktop migration path cannot replace a saved network, including a
+    // disconnected one. Existing manual provisioning remains compatible.
+    if(d["onlyIfEmpty"]==true&&prefs.getString("ssid","").length()){StaticJsonDocument<128> r;r["type"]="wifi-provision-result";r["ok"]=false;r["code"]="wifi_already_saved";serialJson(r);return;}
     if(pending||page==WIFI_PASSWORD)return;wifiSsid=d["ssid"].as<String>();wifiPassword=d["password"].as<String>();connectWifi();return;
   }
   // Explicit Wi-Fi UI QA shares the real key handler and cannot submit a
@@ -893,6 +897,7 @@ void setup(){
   });
   WiFi.mode(WIFI_STA);WiFi.setAutoReconnect(true);
   if(wifiSsid.length()){connection.wifi(millis());page=CONNECT_STATUS;startWifiAssociation();}
+  else {page=SETTINGS;nav.list(6,0,0);}
   discovery.begin(47773);reverseServer.begin();M5.BtnA.setHoldThresh(650);M5.BtnB.setHoldThresh(650);M5.BtnC.setHoldThresh(650);draw();hello();
 }
 void loop(){

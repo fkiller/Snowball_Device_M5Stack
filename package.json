@@ -1,6 +1,6 @@
 {
   "name": "@snowball/device-m5stack",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
   "type": "module",
   "engines": { "node": ">=22.12" },
@@ -9,7 +9,7 @@
     "test": "node --test tests/protocol.test.mjs tests/worker.test.mjs tests/navigation.test.mjs tests/lan-pairing.test.mjs",
     "start": "node scripts/gateway.mjs",
     "firmware:build": "python -m platformio run",
-    "firmware:upload": "python -m platformio run --target upload"
+    "firmware:upload": "python scripts/install_device.py --output .local/device-install.json"
   },
   "license": "Apache-2.0"
 }

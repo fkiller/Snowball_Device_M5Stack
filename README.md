@@ -37,7 +37,9 @@ The installer prepares Node/Git/Python, builds the companion components, checks 
 
 For updates, use the same `-InstallRoot` with `-Update` and omit `-Profile`. Old single-device installs gain both adapters while preserving device settings, pairing keys, controller state, speech caches, custom API port and login startup preference. An absent or ambiguous private LAN leaves automatic discovery waiting while the Web UI remains available; use `-Bind PRIVATE_PC_IP` when needed.
 
-MK20 joins Wi-Fi independently: press K17 (Machines), choose a PC and pair/select it. M5Stack firmware **0.4.0** automatically discovers running middleware on the same LAN, including unknown PCs. Open Machine or Settings → Find middleware, then select a **New** PC to pair over Wi-Fi; registered PCs remain available for switching. Adding a PC requires only the complete middleware installation: no device-specific install, USB connection or registration script. Existing Wi-Fi and registered PC keys are retained. Firmware 0.3.0 and earlier cannot discover unknown PCs; upgrade the device once to 0.4.0. The installed **Register-M5Stack.ps1** / **Register-M5Stack.sh** remain optional maintenance tools for USB verification or explicit firmware preparation, not the normal PC onboarding path. Default verification never flashes; `-Flash` / `--flash` makes a full private flash backup before upload. Firmware builds may fetch missing toolchains. Normal installation and `-Update` do not flash devices. Discovery is inventory; only explicit device selection starts LAN pairing. Use a trusted private LAN with device ports allowed and client isolation disabled.
+MK20 joins Wi-Fi independently: press K17 (Machines), choose a PC and pair/select it. M5Stack firmware **0.4.0 and later** automatically discovers registered and new middleware PCs on the same LAN. Select a New PC in Machines to pair over Wi-Fi. Adding a PC requires only the complete middleware installation: no device-specific install, USB connection or registration script. Use a trusted private LAN with device ports allowed, the same broadcast subnet and no client isolation.
+
+For initial M5Stack preparation or firmware upgrades, **connect USB and use the automatically opened M5Stack setup window**, also available from the tray’s **M5Stack setup…** menu. It shows installed/included versions and improvements; only your Install/Update selection starts a full private flash backup, firmware write, retained Wi-Fi/pairing storage verification and automatic reboot check. Current included firmware is **0.5.0**. If no network is saved, the default reviewed option imports this PC’s connected Wi-Fi after the update when the OS permits it; an existing network is never replaced. OS passwords are read only after that choice and never appear in the UI/logs. If import is unavailable, the same window visually guides Settings → Wi-Fi, network selection and password entry on the FACES keyboard. Original ESP32 Core 4MB/16MB only; CP210x alone does not prove the model, and firmware without a Snowball response requires physical model confirmation. Builds may download missing toolchains. Firmware 0.3.0 and earlier need one device upgrade for LAN discovery of new PCs. Optional `Register-M5Stack.ps1` / `.sh` remain legacy maintenance tools; ordinary installation and `-Update` never silently flash a device.
 
 Options: `-Update`, `-InstallRoot PATH`, `-Bind PRIVATE_PC_IP`, `-Port 8765`, `-NoStart`, `-NoShortcut`. `-Profile web|mk20|m5stack` remains an explicit development/diagnostic subset option, not the normal installation flow; it retains adapters already installed in that root. macOS source users with Node/Git/Python can run `npm run setup --` from a sibling checkout layout; explicit USB preparation uses `--prepare-m5stack [--no-flash]`. Linux suite workers are not yet supported. See the central specification for protocol, authentication and field-verification limits.
 
@@ -97,16 +99,16 @@ Firmware 0.3.0 and later use the middleware's `/v1/controller` API and plugin pr
 
 ## Build and upload
 
-Requires Node >=22.12, Python 3.12, and the CP210x serial driver. Use an explicit serial port belonging to this board; a USB UART VID/PID alone does not identify the product. Back up existing flash before uploading.
+Normal users use the tray’s M5Stack setup window. For developer maintenance, Node >=22.12, Python 3.12 and the CP210x driver are required. The helper below always backs up the entire flash and verifies retained NVS before reboot. Select the actual board’s port; a UART VID/PID alone does not identify it.
 
 ```powershell
 python -m venv .venv
 .venv\Scripts\python -m pip install -r requirements.txt
 .venv\Scripts\python -m platformio run
-.venv\Scripts\python -m platformio run --target upload --upload-port COM7
+.venv\Scripts\python scripts/install_device.py --port COM7 --output .local/device-install.json
 ```
 
-The default profile targets the physically verified 16MB ESP32-D0WDQ6-V3 board. For a 4MB original Core, change `board_upload.flash_size` to `4MB` before flashing. The 3MB application partition does not support OTA; updates use USB.
+The default build profile targets the previously verified 16MB ESP32-D0WDQ6-V3. The setup window/helper detects 4MB or 16MB and generates a local capacity-specific build configuration automatically. The 3MB application partition does not support OTA; updates use USB. Direct raw PlatformIO upload bypasses the product backup/preservation checks and is not the supported update path.
 
 ## Run
 

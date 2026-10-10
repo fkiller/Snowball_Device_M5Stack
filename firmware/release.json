@@ -1,0 +1,9 @@
+{
+  "version": "0.5.0",
+  "board": "m5stack-core-esp32",
+  "date": "2026-10-10",
+  "changes": {
+    "en": ["USB setup reports firmware and saved Wi-Fi without exposing passwords.", "Import the PC's connected Wi-Fi only when the device has no saved network.", "Keep existing Wi-Fi and PC pairings during firmware updates.", "Includes 0.4.0 LAN discovery and device-selected pairing for new PCs."],
+    "ko": ["USB 설정에서 펌웨어 버전과 Wi-Fi 저장 여부를 비밀번호 노출 없이 확인합니다.", "기기에 저장된 네트워크가 없을 때만 PC의 연결된 Wi-Fi를 가져옵니다.", "펌웨어 업데이트 시 기존 Wi-Fi와 PC별 페어링을 유지합니다.", "0.4.0의 새 PC 자동 검색과 기기에서 선택하는 LAN 페어링을 포함합니다."]
+  }
+}

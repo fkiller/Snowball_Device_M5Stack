@@ -42,7 +42,7 @@ let deviceId=null,deviceAddress=null;try{const saved=JSON.parse(fs.readFileSync(
 if(options.device)deviceAddress=options.device;
 if(deviceAddress&&(!privateIp(deviceAddress)||deviceAddress.startsWith('127.')))throw Error('private_device_address_required');
 if(options.device&&deviceId)fs.writeFileSync(path.join(directory,'device.json'),JSON.stringify({deviceId,ip:deviceAddress})+'\n',{mode:0o600});
-let serial,reverse,reverseLogged=false,lastSeen=0,usbSeen=0,busy=false;
+let serial,reverse,reverseLogged=false,lastSeen=0,usbSeen=0,busy=false,serialSuspended=process.env.SNOWBALL_USB_SUSPENDED==='1';
 let view={message:translate('en','unavailable'),items:[],connected:false};
 async function api(route,body) {
   if(!deviceId)throw Error('physical_device_required');
@@ -80,12 +80,13 @@ const action=async raw=>{
 };
 function fault(error){view={...view,connected:false,message:`${translate(controller.locale,'unavailable')}: ${shorten(error.message,80)}`};return view;}
 const sendSerial=obj=>{if(serial?.stdin.writable&&serial.stdin.writableLength<65536)serial.stdin.write(JSON.stringify(obj)+'\n');};
-if(options.serial){
+function startSerial(){
+  if(!options.serial||serial||serialSuspended)return;
   serial=spawn(options.python,[path.join(root,'scripts/serial_bridge.py'),'--port',options.serial],{windowsHide:true,stdio:['pipe','pipe','pipe']});
-  const lines=readline.createInterface({input:serial.stdout});
+  const active=serial,lines=readline.createInterface({input:serial.stdout});
   serial.stderr.on('data',()=>console.error('USB broker reported an error; check selected port.'));
   serial.on('error',()=>console.error('USB broker could not start.'));
-  serial.on('exit',()=>{usbSeen=0;console.error('USB broker closed. LAN remains available if enrolled.');});
+  serial.on('close',()=>{if(serial===active){serial=undefined;usbSeen=0;}lines.close();if(!serialSuspended)console.error('USB broker closed. LAN remains available if enrolled.');});
   lines.on('line',async line=>{
     if(line.length>32768)return;
     let r;try{r=JSON.parse(line);}catch{return;}
@@ -106,6 +107,18 @@ if(options.serial){
     try{sendSerial({type:'response',id:r.id,view:await action(r.action)});}catch(error){sendSerial({type:'response',id:r.id,view:fault(error)});}finally{busy=false;}
   });
 }
+startSerial();
+// Native USB maintenance releases only this UART. MK20, harness workers and
+// authenticated M5Stack LAN traffic continue to run throughout the operation.
+process.on('message',async message=>{
+  if(message?.kind!=='m5-usb-control'||!Number.isSafeInteger(message.id))return;
+  if(message.port!==options.serial)return process.send?.({kind:'m5-usb-result',id:message.id,ok:true});
+  if(message.action==='release'){
+    serialSuspended=true;const current=serial;
+    if(current)await new Promise(resolve=>{const timer=setTimeout(()=>current.kill(),2500);current.once('close',()=>{clearTimeout(timer);resolve();});current.stdin.end();});
+    process.send?.({kind:'m5-usb-result',id:message.id,ok:true});
+  }else if(message.action==='resume'){serialSuspended=false;startSerial();process.send?.({kind:'m5-usb-result',id:message.id,ok:true});}
+});
 async function body(req){let chunks=[],size=0;for await(const c of req){size+=c.length;if(size>MAX_FRAME*2)throw Error('body_limit');chunks.push(c);}return JSON.parse(Buffer.concat(chunks).toString('utf8'));}
 const respond=(res,status,data)=>{const raw=JSON.stringify(data);res.writeHead(status,{'Content-Type':'application/json','Content-Length':Buffer.byteLength(raw),'Cache-Control':'no-store'});res.end(raw);};
 const server=http.createServer(async(req,res)=>{
