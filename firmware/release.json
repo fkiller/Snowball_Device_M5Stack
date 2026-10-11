@@ -1,9 +1,9 @@
 {
-  "version": "0.5.0",
+  "version": "0.5.1",
   "board": "m5stack-core-esp32",
-  "date": "2026-10-10",
+  "date": "2026-10-11",
   "changes": {
-    "en": ["USB setup reports firmware and saved Wi-Fi without exposing passwords.", "Import the PC's connected Wi-Fi only when the device has no saved network.", "Keep existing Wi-Fi and PC pairings during firmware updates.", "Includes 0.4.0 LAN discovery and device-selected pairing for new PCs."],
-    "ko": ["USB 설정에서 펌웨어 버전과 Wi-Fi 저장 여부를 비밀번호 노출 없이 확인합니다.", "기기에 저장된 네트워크가 없을 때만 PC의 연결된 Wi-Fi를 가져옵니다.", "펌웨어 업데이트 시 기존 Wi-Fi와 PC별 페어링을 유지합니다.", "0.4.0의 새 PC 자동 검색과 기기에서 선택하는 LAN 페어링을 포함합니다."]
+    "en": ["A retained legacy single-PC key no longer hides discovered new PCs behind Connecting.", "A late authenticated response from the selected PC recovers the connection page.", "An unavailable PC returns to discovered machine choices after the connection deadline.", "Preserves existing Wi-Fi and PC keys; read-only USB diagnostics distinguish unresolved destinations from authenticated connections."],
+    "ko": ["구 버전의 단일 PC 키가 남아 있어도 발견된 새 PC를 선택할 수 있습니다.", "선택한 PC의 실제 인증 응답이 늦게 도착해도 연결 화면을 복구합니다.", "PC가 응답하지 않으면 연결 제한 시간 후 발견된 Machine 목록으로 돌아갑니다.", "기존 Wi-Fi와 PC 키를 보존하며 읽기 전용 USB 진단으로 목적지 식별·인증 상태를 구분합니다."]
   }
 }

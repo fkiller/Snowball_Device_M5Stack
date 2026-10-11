@@ -10,6 +10,7 @@ struct Pairings {
   std::array<PairedHost,Capacity> hosts{};
   size_t count=0;
   int selected=-1;
+  bool selectedIdentityKnown()const{return selected>=0&&(size_t)selected<count&&hosts[selected].confirmed&&hostIdentity(hosts[selected].id);}
   int find(const std::string& id)const{for(size_t i=0;i<count;i++)if(hosts[i].id==id)return (int)i;return -1;}
   int enroll(const std::string& id,const std::string& key,const std::string& name){
     if(!hostIdentity(id)||!lowerHex(key,64)||name.size()>128)return -1;

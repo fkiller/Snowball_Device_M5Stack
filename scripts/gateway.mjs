@@ -46,6 +46,12 @@ if(deviceAddress&&(!privateIp(deviceAddress)||deviceAddress.startsWith('127.')))
 if(options.device&&deviceId)fs.writeFileSync(path.join(directory,'device.json'),JSON.stringify({deviceId,ip:deviceAddress})+'\n',{mode:0o600});
 let serial,reverse,reverseLogged=false,lastSeen=0,usbSeen=0,busy=false,serialSuspended=process.env.SNOWBALL_USB_SUSPENDED==='1';
 let view={message:translate('en','unavailable'),items:[],connected:false};
+// Transition-only diagnostics: never log keys, signed frames or native content.
+const diagnosticStates=new Map();
+function diagnostic(stage,state){
+  if(diagnosticStates.get(stage)===state)return;
+  diagnosticStates.set(stage,state);console.log(`M5Stack ${stage}: ${state}.`);
+}
 async function api(route,body) {
   if(!deviceId)throw Error('physical_device_required');
   const res=await fetch(options.backend+route,{method:body===undefined?'GET':'POST',headers:{Origin:options.backend,'Content-Type':'application/json','x-snowball-controller':controllerIdForDevice(deviceId)},...(body===undefined?{}:{body:JSON.stringify(body)}),signal:AbortSignal.timeout(['/v1/harness/models','/v1/harness/access'].includes(route)?45000:4000)});
@@ -78,9 +84,14 @@ async function checkpointController(){
 const state=()=>controller.state();
 const action=async raw=>{
   await initializeController();const result=await controller.action(raw);
-  await checkpointController();view={...result,deviceId,controllerId:controllerIdForDevice(deviceId)};return view;
+  await checkpointController();view={...result,deviceId,controllerId:controllerIdForDevice(deviceId)};
+  diagnostic('middleware view',result.connected?'ready':'unavailable');return view;
 };
-function fault(error){view={...view,connected:false,message:`${translate(controller.locale,'unavailable')}: ${shorten(error.message,80)}`};return view;}
+function fault(error){
+  const known=new Set(['physical_device_required','invalid_controller_preferences','invalid_controller_selection','invalid_controller','stale_controller_revision','controller_state_changed','middleware_token_mode_not_supported','native_session_unavailable','rate_limited']);
+  diagnostic('middleware view',known.has(error.message)?error.message:'backend_unavailable');
+  view={...view,connected:false,message:`${translate(controller.locale,'unavailable')}: ${shorten(error.message,80)}`};return view;
+}
 const sendSerial=obj=>{if(serial?.stdin.writable&&serial.stdin.writableLength<65536)serial.stdin.write(JSON.stringify(obj)+'\n');};
 function startSerial(){
   if(!options.serial||serial||serialSuspended)return;
@@ -129,6 +140,7 @@ const server=http.createServer(async(req,res)=>{
   req.setTimeout(5000,()=>req.destroy());
   const peer=req.socket.remoteAddress?.replace(/^::ffff:/,'');
   if(req.method==='POST'&&['/pair','/pair/confirm'].includes(req.url)){
+    diagnostic('LAN pairing request',req.url==='/pair'?'exchange received':'confirmation received');
     if(req.headers.origin!==undefined||!privateIp(peer)||peer.startsWith('127.'))return respond(res,403,{error:'pairing_unavailable'});
     try{
       const request=await body(req);
@@ -142,7 +154,7 @@ const server=http.createServer(async(req,res)=>{
       key=receipt.key;deviceId=receipt.deviceId;deviceAddress=peer;
       console.log('M5Stack LAN enrollment confirmed; existing controller selections are preserved.');
       return respond(res,200,{type:'snowball.paired',version:3,hostId,deviceId,nonce:request.nonce,ticket:request.ticket,epoch,mac:receipt.mac});
-    }catch{return respond(res,403,{error:'pairing_rejected'});}
+    }catch{diagnostic('LAN pairing result','rejected');return respond(res,403,{error:'pairing_rejected'});}
   }
   if(req.method!=='POST'||req.url!=='/device'||!privateIp(req.socket.remoteAddress?.replace(/^::ffff:/,'')))return respond(res,403,{error:'endpoint_denied'});
   let frame;

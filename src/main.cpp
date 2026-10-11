@@ -128,7 +128,14 @@ void acceptView(JsonVariantConst view){
   if(view["connected"].as<bool>()&&(view["deviceId"].as<String>()!=deviceId||view["controllerId"].as<String>()!=controllerId)){notice=tr(Ui::IdentityMismatch);pending=false;dirty=true;return;}
   String previous=remoteView["sessionKey"]|"",acceptedOp=pendingOp;pendingOp="";
   remoteView.clear();remoteView.set(view);lastPoll=lastResponse=millis();pending=false;
-  if(page==CONNECT_STATUS&&remoteView["connected"].as<bool>())connection.authenticated(millis());
+  if(remoteView["connected"].as<bool>()&&(page==CONNECT_STATUS||page==MIDDLEWARE_FIND)){
+    // Discovery/authentication can finish after the connection deadline. A
+    // verified response from the still-selected PC must recover the connection
+    // page; otherwise real connected views leave the device on Retry forever.
+    const bool retryPage=page==MIDDLEWARE_FIND;
+    connection.authenticated(millis(),retryPage);
+    if(retryPage){page=CONNECT_STATUS;nav.list(4,0,1);}
+  }
   notice=String(remoteView["message"]|"");contrast=String(remoteView["skinId"]|"")=="high-contrast";
   pendingSend=false;
   if(snowball::ownJournalAdmission(commandId.c_str(),remoteView["commandId"]|"",remoteView["commandStatus"]|"unconfirmed",remoteView["connected"].as<bool>())){
@@ -240,9 +247,11 @@ void readDiscovery(){int size=discovery.parsePacket();if(size<=0)return;if(size>
     int row=candidateFor(id);if(row<0&&page!=MACHINES){for(int i=0;i<discoveredCount;i++)if(millis()-discoveredHosts[i].seen>20000&&pairings.find(discoveredHosts[i].id.c_str())<0){row=i;break;}}
     if(row<0){if(discoveredCount>=16)return;row=discoveredCount++;}
     discoveredHosts[row]={id,host,ip,epoch,discoverNonce,ticket,publicKey,(uint16_t)port,millis(),pairable};dirty=true;
-    // First boot must offer a visible choice instead of timing out on a PC that
-    // cannot be selected yet. An existing user's selected PC is never replaced.
-    if(pairings.selected<0&&(page==CONNECT_STATUS||page==MIDDLEWARE_FIND)){connection.cancel();openMachines();}
+    // A migrated single key has a selected slot but no host identity/endpoint.
+    // It must not suppress the explicit new-PC choice after an upgrade. Keep
+    // the key and saved selection; only a user choice or signed discovery can
+    // resolve a destination, never an unauthenticated offer.
+    if(!pairings.selectedIdentityKnown()&&(page==CONNECT_STATUS||page==MIDDLEWARE_FIND)){connection.cancel();openMachines();}
     return;
   }
   const String key=pairings.hosts[index].key.c_str();
@@ -679,10 +688,12 @@ void handleSerial(const String&raw){
     dirty=true;return;
   }
   if(type=="connection-inspect"){
-    StaticJsonDocument<512> result;result["type"]="connection-state";result["page"]=(int)page;
+    StaticJsonDocument<768> result;result["type"]="connection-state";result["page"]=(int)page;
     result["phase"]=(int)connection.phase;result["changedAt"]=connection.changedAt;result["uptimeMs"]=millis();
     result["wifi"]=WiFi.status()==WL_CONNECTED;result["middleware"]=middlewareOnline();result["pending"]=pending;
     result["reverse"]=reverseReady&&reverseClient.connected();result["responseAgeMs"]=lastResponse?millis()-lastResponse:0;
+    result["selectedHost"]=selectedHost();result["selectedIdentityKnown"]=pairings.selectedIdentityKnown();
+    result["pairedCount"]=pairings.count;result["candidateCount"]=discoveredCount;
     result["displayLanguage"]=displayKorean?"ko":"en";result["inputLanguage"]=input.korean?"ko":"en";
     serialJson(result);return;
   }
@@ -926,7 +937,10 @@ void loop(){
     wifiStarted=0;WiFi.setAutoReconnect(false);WiFi.disconnect(false,false);wifiEditing=true;passwordVisible=false;
     page=WIFI_PASSWORD;nav.list(3,0,0);notice=tr(Ui::WifiFailed);dirty=true;
   }else if(connectionResult==snowball::ConnectionResult::MiddlewareFailed){
-    page=MIDDLEWARE_FIND;nav.list(3,0,0);notice=tr(Ui::MiddlewareFailed);dirty=true;
+    // Keep an unavailable paired PC pinned, but offer actual discovered PCs
+    // instead of trapping the user in another connection retry screen.
+    if(discoveredCount)openMachines();else {page=MIDDLEWARE_FIND;nav.list(3,0,0);}
+    notice=tr(Ui::MiddlewareFailed);dirty=true;
   }else if(connectionResult==snowball::ConnectionResult::OpenSession)returnSession();
   readDiscovery();
   readReverse();

@@ -10,7 +10,10 @@ struct ConnectionFlow {
   uint32_t changedAt=0;
   void wifi(uint32_t now){phase=ConnectionPhase::Wifi;changedAt=now;}
   void middleware(uint32_t now){phase=ConnectionPhase::Middleware;changedAt=now;}
-  void authenticated(uint32_t now){if(phase==ConnectionPhase::Middleware){phase=ConnectionPhase::Connected;changedAt=now;}}
+  void authenticated(uint32_t now,bool retryPage=false){
+    if(phase==ConnectionPhase::Idle&&retryPage)middleware(now);
+    if(phase==ConnectionPhase::Middleware){phase=ConnectionPhase::Connected;changedAt=now;}
+  }
   void cancel(){phase=ConnectionPhase::Idle;}
   ConnectionResult update(uint32_t now,bool associated){
     auto result=ConnectionResult::None;

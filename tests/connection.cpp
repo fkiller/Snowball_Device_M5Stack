@@ -19,6 +19,11 @@ int main(){
   assert(flow.update(1400,true)==ConnectionResult::OpenSession);
   flow.wifi(0xfffffff0);assert(flow.update(0x20,false)==ConnectionResult::None);
   flow.cancel();assert(flow.update(50000,false)==ConnectionResult::None);
+  flow.middleware(60000);assert(flow.update(75000,true)==ConnectionResult::MiddlewareFailed);
+  flow.authenticated(75001);assert(flow.phase==ConnectionPhase::Idle); // A cancelled unrelated page stays cancelled.
+  flow.authenticated(75002,true);assert(flow.phase==ConnectionPhase::Connected); // Actual late reply on Retry recovers.
+  assert(flow.update(76001,true)==ConnectionResult::None);
+  assert(flow.update(76002,true)==ConnectionResult::OpenSession);
   TextInput input;input.korean=true;input.append('g');input.append('k');
   const auto draft=input.text();
   assert(std::strcmp(translate(Ui::WifiSettings,false),"Wi-Fi settings")==0);

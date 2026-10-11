@@ -194,7 +194,8 @@ def main():
     if not args.no_flash:
         backup = install_firmware(port, ROOT / 'artifacts/backups', lambda phase, **details: print('Firmware: ' + phase, flush=True))
     hello = read_hello(port)
-    if hello.get('firmware') not in ('0.3.0', '0.4.0', '0.5.0'):
+    included = json.loads((ROOT / 'firmware/release.json').read_text(encoding='utf-8'))['version']
+    if hello.get('firmware') not in ('0.3.0', '0.4.0', '0.5.0', included):
         raise RuntimeError('Unsupported Snowball firmware. LAN pairing requires 0.4.0 or later; desktop Wi-Fi migration requires 0.5.0.')
     args.output.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     args.output.write_text(json.dumps({'port': port, 'deviceId': hello['deviceId'], 'flashBytes': hello.get('flashBytes'),
