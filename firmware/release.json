@@ -1,9 +1,9 @@
 {
-  "version": "0.5.1",
+  "version": "0.5.2",
   "board": "m5stack-core-esp32",
   "date": "2026-10-11",
   "changes": {
-    "en": ["A retained legacy single-PC key no longer hides discovered new PCs behind Connecting.", "A late authenticated response from the selected PC recovers the connection page.", "An unavailable PC returns to discovered machine choices after the connection deadline.", "Preserves existing Wi-Fi and PC keys; read-only USB diagnostics distinguish unresolved destinations from authenticated connections."],
-    "ko": ["구 버전의 단일 PC 키가 남아 있어도 발견된 새 PC를 선택할 수 있습니다.", "선택한 PC의 실제 인증 응답이 늦게 도착해도 연결 화면을 복구합니다.", "PC가 응답하지 않으면 연결 제한 시간 후 발견된 Machine 목록으로 돌아갑니다.", "기존 Wi-Fi와 PC 키를 보존하며 읽기 전용 USB 진단으로 목적지 식별·인증 상태를 구분합니다."]
+    "en": ["Fixes a device restart when selecting a newly discovered PC: bounded pairing buffers use heap memory and the native loop has additional stack headroom.", "A retained legacy single-PC key no longer hides discovered new PCs behind Connecting.", "A late authenticated response from the selected PC recovers the connection page.", "Preserves saved Wi-Fi and PC keys; USB diagnostics include native stack headroom without credentials or session content."],
+    "ko": ["발견된 새 PC 선택 시 기기가 재부팅되던 오류를 수정했습니다. 페어링 버퍼를 힙에 배치하고 실행 스택 여유를 확보합니다.", "구 버전의 단일 PC 키가 남아 있어도 발견된 새 PC를 선택할 수 있습니다.", "선택한 PC의 실제 인증 응답이 늦게 도착해도 연결 화면을 복구합니다.", "저장된 Wi-Fi와 PC 키를 보존하며 USB 진단에 비밀정보·세션 내용 없이 실행 스택 여유를 표시합니다."]
   }
 }

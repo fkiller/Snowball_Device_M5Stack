@@ -7,6 +7,7 @@ import json
 import struct
 import sys
 import subprocess
+import re
 from platformio.project.config import ProjectConfig
 
 source = Path(__file__).resolve().parents[1] / 'scripts' / 'install_device.py'
@@ -97,6 +98,34 @@ class FlashConfig(unittest.TestCase):
         root = source.parents[1]
         release = json.loads((root / 'firmware/release.json').read_text(encoding='utf-8'))
         self.assertIn('"' + release['version'] + '"', (root / 'firmware/version.h').read_text(encoding='utf-8'))
+
+    def test_real_compiled_pairing_path_has_loop_stack_headroom(self):
+        root = source.parents[1]
+        report = root / '.pio/build/m5stack-core-esp32/src/main.cpp.su'
+        if not report.exists():
+            self.skipTest('Run the real firmware build with stack-usage output first')
+        # Compiler frames, rather than guessed source-local sizes. Diagnostic
+        # navigation is the deepest UI entry; reserve 4 KiB for SDK/crypto calls
+        # not represented in this translation unit. Hardware high-water QA is
+        # still required; this guards the reproduced 8 KiB regression.
+        frames = {}
+        for line in report.read_text(encoding='utf-8').splitlines():
+            name, size, kind = line.rsplit('\t', 2)
+            frames[name] = (int(size), kind)
+        path = ['void loop()', 'void handleSerial(', 'void select()',
+                'bool pairCandidate(', 'bool pairingHttp(',
+                'bool snowball::LanKeyExchange::decrypt(']
+        used = 0
+        for name in path:
+            found = [value for signature, value in frames.items() if name in signature]
+            self.assertEqual(len(found), 1, name)
+            self.assertEqual(found[0][1], 'static', name)
+            used += found[0][0]
+        for capacity in (4, 16):
+            config = installer.build_config(capacity)
+            match = re.search(r'-DARDUINO_LOOP_STACK_SIZE=(\d+)', config)
+            self.assertIsNotNone(match, 'The real install build must retain the stack budget')
+            self.assertLessEqual(used + 4096, int(match.group(1)))
 
 if __name__ == '__main__':
     unittest.main()

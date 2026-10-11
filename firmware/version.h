@@ -1,2 +1,2 @@
 #pragma once
-#define SNOWBALL_FIRMWARE_VERSION "0.5.1"
+#define SNOWBALL_FIRMWARE_VERSION "0.5.2"

@@ -277,8 +277,13 @@ bool pairCandidate(int candidate){
   snowball::LanKeyExchange exchange;String publicKey;
   if(!exchange.generate(publicKey))return false;
   String aad="snowball.pair.v3\n"+endpoint.id+"\n"+deviceId+"\n"+endpoint.nonce+"\n"+endpoint.ticket+"\n"+endpoint.epoch+"\n"+endpoint.publicKey+"\n"+publicKey;
-  StaticJsonDocument<768> outgoing;outgoing["hostId"]=endpoint.id;outgoing["deviceId"]=deviceId;outgoing["nonce"]=endpoint.nonce;outgoing["ticket"]=endpoint.ticket;outgoing["publicKey"]=publicKey;
-  String raw;serializeJson(outgoing,raw);StaticJsonDocument<2048> reply;
+  // Pairing nests HTTP/ECDH below UI handlers. These bounded documents belong
+  // on the heap: stack-resident copies exhausted the default 8 KiB loop stack
+  // before the first HTTP request, corrupting the adjacent heap lock.
+  DynamicJsonDocument outgoing(768),reply(2048);
+  if(!outgoing.capacity()||!reply.capacity())return false;
+  outgoing["hostId"]=endpoint.id;outgoing["deviceId"]=deviceId;outgoing["nonce"]=endpoint.nonce;outgoing["ticket"]=endpoint.ticket;outgoing["publicKey"]=publicKey;
+  String raw;serializeJson(outgoing,raw);
   if(!pairingHttp(endpoint,"/pair",raw,reply)||String(reply["type"]|"")!="snowball.pair"||reply["version"]!=3||reply["hostId"].as<String>()!=endpoint.id||reply["deviceId"].as<String>()!=deviceId||reply["nonce"].as<String>()!=endpoint.nonce||reply["ticket"].as<String>()!=endpoint.ticket||reply["epoch"].as<String>()!=endpoint.epoch)return false;
   String key;if(!exchange.decrypt(endpoint.publicKey,aad,reply["iv"].as<String>(),reply["ciphertext"].as<String>(),reply["tag"].as<String>(),key)||!hex(key,64))return false;
   // Save a provisional key before the PC commits. A lost acceptance receipt can
@@ -688,12 +693,13 @@ void handleSerial(const String&raw){
     dirty=true;return;
   }
   if(type=="connection-inspect"){
-    StaticJsonDocument<768> result;result["type"]="connection-state";result["page"]=(int)page;
+    StaticJsonDocument<896> result;result["type"]="connection-state";result["page"]=(int)page;
     result["phase"]=(int)connection.phase;result["changedAt"]=connection.changedAt;result["uptimeMs"]=millis();
     result["wifi"]=WiFi.status()==WL_CONNECTED;result["middleware"]=middlewareOnline();result["pending"]=pending;
     result["reverse"]=reverseReady&&reverseClient.connected();result["responseAgeMs"]=lastResponse?millis()-lastResponse:0;
     result["selectedHost"]=selectedHost();result["selectedIdentityKnown"]=pairings.selectedIdentityKnown();
     result["pairedCount"]=pairings.count;result["candidateCount"]=discoveredCount;
+    result["stackFreeBytes"]=uxTaskGetStackHighWaterMark(nullptr)*sizeof(StackType_t);
     result["displayLanguage"]=displayKorean?"ko":"en";result["inputLanguage"]=input.korean?"ko":"en";
     serialJson(result);return;
   }
