@@ -4,23 +4,185 @@
   "name": "M5Stack",
   "release": "firmware/release.json",
   "bridge": "scripts/usb_setup.py",
-  "identity": {"prefix": "m5-", "hexLength": 12},
-  "capabilities": {"fullBackup": true, "preserveSettings": true, "verifySettings": true, "reboot": true, "wifiImport": true},
-  "files": ["firmware", "src", "scripts/usb_setup.py", "scripts/install_device.py", "scripts/os_wifi.py", "scripts/export_flash_plan.py", "platformio.ini", "requirements.txt"],
+  "identity": {
+    "prefix": "m5-",
+    "hexLength": 12
+  },
+  "capabilities": {
+    "fullBackup": true,
+    "preserveSettings": true,
+    "verifySettings": true,
+    "reboot": true,
+    "wifiImport": true
+  },
+  "files": [
+    "firmware",
+    "src",
+    "scripts/usb_setup.py",
+    "scripts/install_device.py",
+    "scripts/os_wifi.py",
+    "scripts/export_flash_plan.py",
+    "platformio.ini",
+    "requirements.txt"
+  ],
   "presentation": {
     "ko": {
       "connection": "M5Stack을 USB 데이터 케이블로 연결하세요. 최초 ESP32 Core의 CP210x UART를 검색합니다. Core2 / CoreS3는 지원하지 않습니다. 기기가 나타나지 않으면 케이블과 CP210x 드라이버를 확인하세요.",
       "confirmation": "연결한 기기가 최초 ESP32 M5Stack Core(4MB 또는 16MB)임을 확인했습니다.",
-      "steps": ["Wi-Fi 정보가 없는 0.5.0 기기는 재기동 후 설정 메뉴를 엽니다. Wi-Fi 설정을 B 또는 Enter로 선택하세요.", "A / C 버튼 또는 키보드 ↑ / ↓로 네트워크를 고른 뒤 B / Enter로 선택하세요. FACES 키보드로 비밀번호를 입력하고 Enter를 누르세요.", "연결되면 같은 LAN의 미들웨어가 자동 검색됩니다. 머신 목록에서 원하는 PC를 선택해 페어링하세요. PC마다 USB로 등록할 필요가 없습니다."],
-      "note": "비밀번호 직접 입력에는 FACES 키보드가 필요합니다. PC에서 Wi-Fi 가져오기가 가능하면 키보드 입력을 생략할 수 있습니다. 기기는 2.4GHz Wi-Fi가 필요합니다.",
-      "diagram": {"title": "Settings / 설정", "selection": "Wi-Fi / Wi-Fi 설정", "hint": "↑ ↓ / Enter", "buttons": ["A ↑", "B ↵", "C ↓"]}
+      "steps": [
+        "Wi-Fi가 없으면 재기동 후 Settings가 열립니다. B 또는 FACES의 Enter로 Wi-Fi를 선택하세요.",
+        "검색된 Wi-Fi 목록에서 A/C 또는 키보드 ↑/↓로 원하는 네트워크로 이동하세요.",
+        "원하는 Wi-Fi가 강조되면 B 또는 Enter로 선택하세요.",
+        "FACES 키보드에 실제 비밀번호를 입력하고 Enter를 누르세요. 이 그림에는 비밀번호를 입력하지 않습니다.",
+        "연결된 뒤 Machine 목록에서 A/C로 원하는 PC를 고르고 B로 페어링·선택하세요.",
+        "실제 기기에 선택한 PC의 하네스와 프로젝트가 나타나는지 확인하세요. PC마다 USB 등록할 필요는 없습니다."
+      ],
+      "note": "비밀번호 직접 입력에는 FACES 키보드가 필요합니다. PC에서 Wi-Fi 가져오기가 가능하면 키보드 입력을 생략할 수 있습니다. 기기는 2.4GHz Wi-Fi가 필요합니다. 이 그림은 조작 안내이며 실제 기기를 제어하지 않습니다.",
+      "diagram": {
+        "title": "Settings / 설정",
+        "selection": "Wi-Fi / Wi-Fi 설정",
+        "hint": "↑ ↓ / Enter",
+        "buttons": [
+          "A ↑",
+          "B ↵",
+          "C ↓"
+        ],
+        "model": "m5stack-core"
+      },
+      "walkthrough": [
+        {
+          "text": "Wi-Fi가 없으면 재기동 후 Settings가 열립니다. B 또는 FACES의 Enter로 Wi-Fi를 선택하세요.",
+          "control": "select",
+          "screen": [
+            "Settings",
+            "▸ Wi-Fi",
+            "Machine"
+          ]
+        },
+        {
+          "text": "검색된 Wi-Fi 목록에서 A/C 또는 키보드 ↑/↓로 원하는 네트워크로 이동하세요.",
+          "control": "down",
+          "screen": [
+            "Wi-Fi",
+            "검색된 네트워크 목록",
+            "A ↑ / C ↓"
+          ]
+        },
+        {
+          "text": "원하는 Wi-Fi가 강조되면 B 또는 Enter로 선택하세요.",
+          "control": "select",
+          "screen": [
+            "Wi-Fi",
+            "▸ 선택한 네트워크",
+            "B / Enter"
+          ]
+        },
+        {
+          "text": "FACES 키보드에 실제 비밀번호를 입력하고 Enter를 누르세요. 이 그림에는 비밀번호를 입력하지 않습니다.",
+          "control": "enter",
+          "screen": [
+            "Wi-Fi 비밀번호",
+            "FACES 키보드로 입력",
+            "Enter → 기기에서 연결 확인"
+          ]
+        },
+        {
+          "text": "연결된 뒤 Machine 목록에서 A/C로 원하는 PC를 고르고 B로 페어링·선택하세요.",
+          "control": "select",
+          "screen": [
+            "Machine",
+            "발견한 PC 목록",
+            "A / C 이동 · B 선택"
+          ]
+        },
+        {
+          "text": "실제 기기에 선택한 PC의 하네스와 프로젝트가 나타나는지 확인하세요. PC마다 USB 등록할 필요는 없습니다.",
+          "control": "next",
+          "screen": [
+            "실제 기기에서 확인",
+            "PC → 하네스 → 프로젝트"
+          ]
+        }
+      ]
     },
     "en": {
       "connection": "Connect an original ESP32 M5Stack Core with a USB data cable. Looking for CP210x UARTs. Core2 / CoreS3 are not supported. Check the cable and CP210x driver if no device appears.",
       "confirmation": "I confirm this is an original ESP32 M5Stack Core with 4MB or 16MB flash.",
-      "steps": ["Firmware 0.5.0 opens Settings after boot when no network is saved. Select Wi-Fi with B or Enter.", "Use A / C or keyboard ↑ / ↓ to choose your network, then B / Enter. Type the password on the FACES keyboard and press Enter.", "Once connected, middleware PCs on the same LAN are discovered automatically. Choose a PC in Machines to pair. No USB registration per PC is needed."],
-      "note": "Manual password entry requires the FACES keyboard. Importing Wi-Fi from the PC skips that typing step. The device requires 2.4GHz Wi-Fi.",
-      "diagram": {"title": "Settings", "selection": "Wi-Fi", "hint": "↑ ↓ / Enter", "buttons": ["A ↑", "B ↵", "C ↓"]}
+      "steps": [
+        "Without saved Wi-Fi, Settings opens after reboot. Press B or FACES Enter to choose Wi-Fi.",
+        "In the scanned Wi-Fi list, use A/C or keyboard ↑/↓ to move to your network.",
+        "Press B or Enter when your network is highlighted.",
+        "Type the real password on your FACES keyboard and press Enter. Do not enter passwords into this illustration.",
+        "Once connected, choose a PC in Machine using A/C, then press B to pair/select.",
+        "Check your physical device for the selected PC’s harnesses and projects. No USB registration per PC is needed."
+      ],
+      "note": "Manual password entry requires the FACES keyboard. Importing Wi-Fi from the PC skips that typing step. The device requires 2.4GHz Wi-Fi. This walkthrough explains the controls and does not control your device.",
+      "diagram": {
+        "title": "Settings",
+        "selection": "Wi-Fi",
+        "hint": "↑ ↓ / Enter",
+        "buttons": [
+          "A ↑",
+          "B ↵",
+          "C ↓"
+        ],
+        "model": "m5stack-core"
+      },
+      "walkthrough": [
+        {
+          "text": "Without saved Wi-Fi, Settings opens after reboot. Press B or FACES Enter to choose Wi-Fi.",
+          "control": "select",
+          "screen": [
+            "Settings",
+            "▸ Wi-Fi",
+            "Machine"
+          ]
+        },
+        {
+          "text": "In the scanned Wi-Fi list, use A/C or keyboard ↑/↓ to move to your network.",
+          "control": "down",
+          "screen": [
+            "Wi-Fi",
+            "Scanned networks",
+            "A ↑ / C ↓"
+          ]
+        },
+        {
+          "text": "Press B or Enter when your network is highlighted.",
+          "control": "select",
+          "screen": [
+            "Wi-Fi",
+            "▸ Your selected network",
+            "B / Enter"
+          ]
+        },
+        {
+          "text": "Type the real password on your FACES keyboard and press Enter. Do not enter passwords into this illustration.",
+          "control": "enter",
+          "screen": [
+            "Wi-Fi password",
+            "Type on the FACES keyboard",
+            "Enter → check device connection"
+          ]
+        },
+        {
+          "text": "Once connected, choose a PC in Machine using A/C, then press B to pair/select.",
+          "control": "select",
+          "screen": [
+            "Machine",
+            "Discovered PCs",
+            "A / C move · B select"
+          ]
+        },
+        {
+          "text": "Check your physical device for the selected PC’s harnesses and projects. No USB registration per PC is needed.",
+          "control": "next",
+          "screen": [
+            "Check your physical device",
+            "PC → harness → project"
+          ]
+        }
+      ]
     }
   }
 }
