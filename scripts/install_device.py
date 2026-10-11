@@ -26,11 +26,48 @@ def build_config(size_mb):
         raise RuntimeError('Expected one reviewed flash-size setting')
     return result
 
-def run(args, capture=False):
+def run(args, capture=False, on_output=None):
+    if on_output is not None:
+        # esptool 4 emits byte counts separated by backspaces, not lines.
+        # Drain available chunks while it runs; never expose its raw output.
+        with subprocess.Popen([sys.executable, '-u', *args], cwd=ROOT,
+                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                              creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0) as child:
+            tail = ''
+            while chunk := child.stdout.read1(4096):
+                text = chunk.decode('utf-8', errors='replace')
+                tail = (tail + text)[-65536:]
+                on_output(text)
+            code = child.wait()
+            if code:
+                raise subprocess.CalledProcessError(code, child.args, output=tail)
+            return tail
     return subprocess.run([sys.executable, *args], cwd=ROOT, check=True,
                           text=True, stdout=subprocess.PIPE if capture else None,
                           stderr=subprocess.STDOUT if capture else None,
                           creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0).stdout
+
+
+class BackupProgress:
+    """Export only validated, monotonic esptool read counters, once per percent."""
+    def __init__(self, total, progress):
+        self.total, self.progress = total, progress
+        self.buffer, self.completed, self.percent = '', 0, -1
+        self.started = time.monotonic()
+
+    def __call__(self, chunk):
+        self.buffer += chunk
+        matches = list(re.finditer(r'(\d+)\s*\(\s*(\d+)\s*%\s*\)', self.buffer))
+        for match in matches:
+            completed, percent = map(int, match.groups())
+            if not self.completed <= completed <= self.total or percent != completed * 100 // self.total:
+                continue
+            self.completed = completed
+            if percent > self.percent:
+                self.percent = percent
+                self.progress('backup', completedBytes=completed, bytes=self.total,
+                              elapsedSeconds=int(time.monotonic() - self.started))
+        self.buffer = self.buffer[matches[-1].end():][-128:] if matches else self.buffer[-128:]
 
 def select_port(explicit):
     if explicit:
@@ -110,8 +147,9 @@ def install_firmware(port, backup_directory, progress=lambda phase, **details: N
     size_mb = int(match[1])
     backup_directory.mkdir(parents=True, exist_ok=True, mode=0o700)
     backup = backup_directory / (mac[1].replace(':', '') + '-' + uuid.uuid4().hex + '.bin')
-    progress('backup', backup=str(backup), bytes=size_mb * 1024 * 1024)
-    run(['-m', 'esptool', '--port', port, '--chip', 'esp32', '--baud', '460800', '--after', 'no_reset', 'read_flash', '0', str(size_mb * 1024 * 1024), str(backup)], capture=True)
+    progress('backup', backup=str(backup), bytes=size_mb * 1024 * 1024, completedBytes=0, elapsedSeconds=0)
+    run(['-m', 'esptool', '--port', port, '--chip', 'esp32', '--baud', '460800', '--after', 'no_reset', 'read_flash', '0', str(size_mb * 1024 * 1024), str(backup)], capture=True,
+        on_output=BackupProgress(size_mb * 1024 * 1024, progress))
     original = backup.read_bytes()
     if len(original) != size_mb * 1024 * 1024:
         raise RuntimeError('backup_incomplete')

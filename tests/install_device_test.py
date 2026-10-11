@@ -6,6 +6,7 @@ import unittest
 import json
 import struct
 import sys
+import subprocess
 from platformio.project.config import ProjectConfig
 
 source = Path(__file__).resolve().parents[1] / 'scripts' / 'install_device.py'
@@ -16,6 +17,36 @@ sys.path.insert(0, str(source.parent))
 from os_wifi import profile_credentials
 
 class FlashConfig(unittest.TestCase):
+    def test_backup_progress_parses_split_esptool_backspace_counters(self):
+        events = []
+        read = installer.BackupProgress(16777216, lambda phase, **data: events.append((phase, data)))
+        for chunk in ['private tool header\n16777', '2 (0 %)\b\b\b', '167772 (1 %)\b', '335544 (1 %)\b', '335545 (2 %)\b', '16777216 (100 %)\n']:
+            read(chunk)
+        self.assertEqual([value['completedBytes'] for _, value in events], [167772, 335544, 335545, 16777216])
+        self.assertTrue(all(phase == 'backup' and set(value) == {'completedBytes', 'bytes', 'elapsedSeconds'} for phase, value in events))
+        self.assertTrue(all(value['bytes'] == 16777216 and value['elapsedSeconds'] >= 0 for _, value in events))
+
+    def test_backup_progress_rejects_inconsistent_overflow_and_regressing_values(self):
+        events = []
+        read = installer.BackupProgress(1000, lambda phase, **data: events.append(data))
+        read('100 (10 %)\b')
+        read('90 (9 %)\b1001 (100 %)\b200 (99 %)\b')
+        read('secret profile material' * 1000)
+        self.assertLessEqual(len(read.buffer), 128)
+        read('200 (20 %)\b')
+        self.assertEqual([value['completedBytes'] for value in events], [100, 200])
+
+    def test_stream_runner_drains_actual_child_output_without_forwarding_it(self):
+        chunks = []
+        result = installer.run(['-c', "import sys;sys.stdout.write('100 (10 %)\\b');sys.stdout.flush();sys.stderr.write('diagnostic')"], capture=True, on_output=chunks.append)
+        self.assertIn('100 (10 %)', ''.join(chunks))
+        self.assertIn('diagnostic', result)
+
+    def test_stream_runner_propagates_real_child_failure(self):
+        with self.assertRaises(subprocess.CalledProcessError) as raised:
+            installer.run(['-c', 'import sys;sys.exit(7)'], capture=True, on_output=lambda chunk: None)
+        self.assertEqual(raised.exception.returncode, 7)
+
     def test_actual_platformio_config_for_each_supported_board(self):
         for size in (4, 16):
             with self.subTest(size=size), tempfile.TemporaryDirectory() as directory:
