@@ -69,6 +69,51 @@ class BackupProgress:
                               elapsedSeconds=int(time.monotonic() - self.started))
         self.buffer = self.buffer[matches[-1].end():][-128:] if matches else self.buffer[-128:]
 
+
+def read_flash_backup(port, backup, total, progress):
+    """Read bounded, esptool-digest-checked chunks before publishing a full backup."""
+    partial, chunk = backup.with_suffix('.partial'), backup.with_suffix('.chunk')
+    started, reported = time.monotonic(), 0
+    def report(completed):
+        nonlocal reported
+        reported = max(reported, completed)
+        progress('backup', completedBytes=reported, bytes=total,
+                 elapsedSeconds=int(time.monotonic() - started))
+    try:
+        with partial.open('xb') as output:
+            for offset in range(0, total, 1024 * 1024):
+                length = min(1024 * 1024, total - offset)
+                for baud in (460800, 115200):
+                    chunk.unlink(missing_ok=True)
+                    counters = BackupProgress(length, lambda phase, **data: report(offset + data['completedBytes']))
+                    try:
+                        run(['-m', 'esptool', '--port', port, '--chip', 'esp32', '--baud', str(baud),
+                             '--after', 'no_reset', 'read_flash', str(offset), str(length), str(chunk)],
+                            capture=True, on_output=counters)
+                    except subprocess.CalledProcessError:
+                        if baud == 115200:
+                            raise
+                        continue
+                    if chunk.stat().st_size != length:
+                        raise RuntimeError('backup_incomplete')
+                    output.write(chunk.read_bytes())
+                    report(offset + length)
+                    break
+        if partial.stat().st_size != total:
+            raise RuntimeError('backup_incomplete')
+        partial.replace(backup)
+    except Exception as error:
+        # No write can have started here. Restore the existing runtime after a
+        # failed read so the next reviewed attempt can obtain its real hello.
+        try:
+            run(['-m', 'esptool', '--port', port, '--chip', 'esp32', '--after', 'hard_reset', 'run'], capture=True)
+            read_hello(port, timeout=8, require_faces=False)
+        except Exception:
+            raise RuntimeError('backup_read_failed_reboot_unconfirmed') from error
+        raise RuntimeError('backup_read_failed') from error
+    finally:
+        chunk.unlink(missing_ok=True)
+
 def select_port(explicit):
     if explicit:
         return explicit
@@ -148,8 +193,7 @@ def install_firmware(port, backup_directory, progress=lambda phase, **details: N
     backup_directory.mkdir(parents=True, exist_ok=True, mode=0o700)
     backup = backup_directory / (mac[1].replace(':', '') + '-' + uuid.uuid4().hex + '.bin')
     progress('backup', backup=str(backup), bytes=size_mb * 1024 * 1024, completedBytes=0, elapsedSeconds=0)
-    run(['-m', 'esptool', '--port', port, '--chip', 'esp32', '--baud', '460800', '--after', 'no_reset', 'read_flash', '0', str(size_mb * 1024 * 1024), str(backup)], capture=True,
-        on_output=BackupProgress(size_mb * 1024 * 1024, progress))
+    read_flash_backup(port, backup, size_mb * 1024 * 1024, progress)
     original = backup.read_bytes()
     if len(original) != size_mb * 1024 * 1024:
         raise RuntimeError('backup_incomplete')

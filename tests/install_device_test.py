@@ -8,6 +8,7 @@ import struct
 import sys
 import subprocess
 import re
+from unittest.mock import patch
 from platformio.project.config import ProjectConfig
 
 source = Path(__file__).resolve().parents[1] / 'scripts' / 'install_device.py'
@@ -18,6 +19,44 @@ sys.path.insert(0, str(source.parent))
 from os_wifi import profile_credentials
 
 class FlashConfig(unittest.TestCase):
+    def test_chunk_assembly_retries_only_failed_range_at_lower_baud_and_keeps_progress_monotonic(self):
+        # Filesystem/assembler fault injection only; no device acceptance claim.
+        with tempfile.TemporaryDirectory() as directory:
+            backup = Path(directory) / 'backup.bin'
+            total, events, calls = 2 * 1024 * 1024 + 4096, [], []
+            def reader(args, capture=False, on_output=None):
+                self.assertIn('read_flash', args)
+                offset, length = map(int, args[-3:-1])
+                baud = args[args.index('--baud') + 1]
+                calls.append((offset, length, baud))
+                on_output(f'{length} (100 %)')
+                if offset == 1024 * 1024 and baud == '460800':
+                    raise subprocess.CalledProcessError(2, args, output='Corrupt data')
+                Path(args[-1]).write_bytes(bytes([offset // (1024 * 1024)]) * length)
+            with patch.object(installer, 'run', side_effect=reader):
+                installer.read_flash_backup('metadata-only', backup, total, lambda phase, **data: events.append(data))
+            self.assertEqual(calls, [(0, 1048576, '460800'), (1048576, 1048576, '460800'), (1048576, 1048576, '115200'), (2097152, 4096, '460800')])
+            self.assertEqual(backup.read_bytes(), b'\0' * 1048576 + b'\1' * 1048576 + b'\2' * 4096)
+            self.assertFalse(backup.with_suffix('.partial').exists())
+            self.assertFalse(backup.with_suffix('.chunk').exists())
+            counts = [event['completedBytes'] for event in events]
+            self.assertEqual(counts, sorted(counts))
+            self.assertEqual(counts[-1], total)
+
+    def test_exhausted_reads_never_publish_full_backup_or_start_firmware_writes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            backup, calls = Path(directory) / 'backup.bin', []
+            def failing_child(args, **kwargs):
+                calls.append(args)
+                raise subprocess.CalledProcessError(2, args, output='Corrupt data')
+            with patch.object(installer, 'run', side_effect=failing_child):
+                with self.assertRaisesRegex(RuntimeError, 'backup_read_failed_reboot_unconfirmed'):
+                    installer.read_flash_backup('metadata-only', backup, 1048576, lambda *args, **kwargs: None)
+            self.assertFalse(backup.exists())
+            self.assertFalse(any('write_flash' in args for args in calls))
+            self.assertEqual(len([args for args in calls if 'read_flash' in args]), 2)
+            self.assertIn('hard_reset', calls[-1])
+
     def test_backup_progress_parses_split_esptool_backspace_counters(self):
         events = []
         read = installer.BackupProgress(16777216, lambda phase, **data: events.append((phase, data)))
