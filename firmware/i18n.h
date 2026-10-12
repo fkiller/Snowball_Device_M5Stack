@@ -105,6 +105,15 @@ enum class Ui {
   NewPc,
   Pairing,
   PairingFailed,
+  SleepTimer,
+  DoubleClick,
+  Off,
+  OneMinute,
+  FiveMinutes,
+  TenMinutes,
+  SleepHints,
+  DoubleClickHints,
+  SettingsStorageFailed,
 };
 inline const char* translate(Ui key,bool korean){
   static const char* const strings[][2]={
@@ -211,6 +220,15 @@ inline const char* translate(Ui key,bool korean){
     {"New","새 PC"},
     {"Pairing selected PC...","선택한 PC 등록 중..."},
     {"Pairing unavailable. Search again","등록할 수 없습니다. 다시 검색하세요"},
+    {"Sleep Timer","화면 절전 타이머"},
+    {"Double Click","더블 클릭"},
+    {"Off","끄기"},
+    {"1min","1분"},
+    {"5mins","5분"},
+    {"10mins","10분"},
+    {"Idle screen off; any key wakes","미사용 시 화면 끄기 · 버튼/키로 켜기"},
+    {"5-500ms / 5ms steps","5-500ms · 5ms 단위"},
+    {"Settings could not be saved","설정을 저장할 수 없습니다"},
   };
   return strings[static_cast<size_t>(key)][korean?1:0];
 }

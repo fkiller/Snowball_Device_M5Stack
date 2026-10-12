@@ -15,6 +15,7 @@
 #include "../firmware/editor_layout.h"
 #include "../firmware/submission.h"
 #include "../firmware/navigation.h"
+#include "../firmware/device_settings.h"
 #include "../firmware/snowball_icon.h"
 #include "../firmware/i18n.h"
 #include "../firmware/connection.h"
@@ -65,6 +66,9 @@ static String attemptSsid,attemptPassword;
 static snowball::Navigation nav;
 static snowball::MenuHistory menuHistory;
 static snowball::ButtonGesture gestures[3];
+static snowball::DeviceSettings deviceSettings;
+static snowball::DisplayIdle displayIdle;
+static bool wakeButtons=false;
 static bool listInitial=false,followTail=false,layoutOk=true;
 static bool clearRemoteMenu=false;
 static int settingsIndex=0,wifiIndex=0;
@@ -74,12 +78,20 @@ static uint32_t nextContentFetch=0;
 static int captureConnectionPhase=-1;
 static uint32_t captureRequestedAt=0;
 
-enum Page { SESSION_CONTENT=0, HOME=0, READ_REPLY=0, REMOTE_LIST=1, COMPOSE=2, CONFIRM=3, WIFI_LIST=4, WIFI_PASSWORD=5, INFO=7, SETTINGS=8, ACTIONS=9, CONNECT_STATUS=10, MIDDLEWARE_FIND=11, DISPLAY_LANGUAGE=12, INPUT_SETTINGS=13, EDITOR_POPUP=14, MACHINES=15, FORGET_PC=16 };
+enum Page { SESSION_CONTENT=0, HOME=0, READ_REPLY=0, REMOTE_LIST=1, COMPOSE=2, CONFIRM=3, WIFI_LIST=4, WIFI_PASSWORD=5, INFO=7, SETTINGS=8, ACTIONS=9, CONNECT_STATUS=10, MIDDLEWARE_FIND=11, DISPLAY_LANGUAGE=12, INPUT_SETTINGS=13, EDITOR_POPUP=14, MACHINES=15, FORGET_PC=16, SLEEP_TIMER=17, DOUBLE_CLICK=18 };
 static Page page=SESSION_CONTENT;
-static const Ui settingsItems[]={Ui::WifiSettings,Ui::FindMiddleware,Ui::Theme,Ui::DisplayLanguage,Ui::InputSettings,Ui::DeviceInfo};
+static const Ui settingsItems[]={Ui::WifiSettings,Ui::FindMiddleware,Ui::Theme,Ui::DisplayLanguage,Ui::InputSettings,Ui::DeviceInfo,Ui::SleepTimer,Ui::DoubleClick};
+static constexpr int SettingsCount=sizeof(settingsItems)/sizeof(settingsItems[0]);
+static const Ui sleepItems[]={Ui::Off,Ui::OneMinute,Ui::FiveMinutes,Ui::TenMinutes};
 static const Ui actionItems[]={Ui::Compose,Ui::Model,Ui::Effort,Ui::Refresh,Ui::BackContent};
 void back();void draw();void select();void returnSession(bool top=false,bool refresh=true);void syncNavigation();bool restoreMenu();
 bool wifiUi(){return page==WIFI_LIST||page==WIFI_PASSWORD||scanRunning;}
+bool localActivity(){
+  if(!displayIdle.activity(millis()))return false;
+  M5.Display.setBrightness(160);dirty=true;
+  for(auto& gesture:gestures)gesture={};
+  return true;
+}
 
 String randomHex(size_t bytes){String s;for(size_t i=0;i<bytes;i++){uint8_t b=esp_random()&255;char h[3];snprintf(h,3,"%02x",b);s+=h;}return s;}
 String hmacKey(const String &key,const String &value){uint8_t result[32];mbedtls_md_context_t ctx;mbedtls_md_init(&ctx);mbedtls_md_setup(&ctx,mbedtls_md_info_from_type(MBEDTLS_MD_SHA256),1);mbedtls_md_hmac_starts(&ctx,(const unsigned char*)key.c_str(),key.length());mbedtls_md_hmac_update(&ctx,(const unsigned char*)value.c_str(),value.length());mbedtls_md_hmac_finish(&ctx,result);mbedtls_md_free(&ctx);String s;for(int i=0;i<32;i++){char h[3];snprintf(h,3,"%02x",result[i]);s+=h;}return s;}
@@ -401,7 +413,9 @@ void connectWifi(){
 void syncNavigation(){
   if(page==SESSION_CONTENT){nav.returnCrumb=4;nav.configure(remoteView["contentTotal"]|0,snowball::ContentRows,true);}
   else if(page==REMOTE_LIST||page==EDITOR_POPUP)nav.configure(listInitial?0:(remoteView["menuTotal"]|0),7,false);
-  else if(page==SETTINGS)nav.configure(6,7,false);
+  else if(page==SETTINGS)nav.configure(SettingsCount,7,false);
+  else if(page==SLEEP_TIMER)nav.configure(snowball::SleepOptionCount,7,false);
+  else if(page==DOUBLE_CLICK)nav.configure(snowball::DoubleClickOptionCount,7,false);
   else if(page==ACTIONS)nav.configure(5,7,false);
   else if(page==DISPLAY_LANGUAGE||page==INPUT_SETTINGS)nav.configure(2,7,false);
   else if(page==MIDDLEWARE_FIND)nav.configure(3,7,false);
@@ -425,7 +439,7 @@ bool restoreMenu(){
   page=(Page)parent;expectedMenu="";listInitial=false;syncNavigation();dirty=true;return true;
 }
 void returnSettings(){
-  if(!restoreMenu()){page=SETTINGS;nav.list(6,settingsIndex,0);dirty=true;}
+  if(!restoreMenu()){page=SETTINGS;nav.list(SettingsCount,settingsIndex,0);dirty=true;}
 }
 void openRemote(const char* kind,int origin){
   if(pending||clearRemoteMenu){notice=tr(Ui::Wait);dirty=true;return;}
@@ -456,7 +470,7 @@ void back(){
   if(page==WIFI_PASSWORD){passwordVisible=false;if(!restoreMenu()){page=WIFI_LIST;nav.list(scanCount+3,wifiIndex,0);}dirty=true;return;}
   if(page==FORGET_PC){openMachines();return;}
   if(page==MACHINES){returnSession(true);nav.crumb=1;return;}
-  if(page==WIFI_LIST||page==INFO||page==DISPLAY_LANGUAGE||page==INPUT_SETTINGS||page==MIDDLEWARE_FIND||page==CONNECT_STATUS){if(scanRunning)cancelScan();connection.cancel();resumeWifi();returnSettings();return;}
+  if(page==WIFI_LIST||page==INFO||page==DISPLAY_LANGUAGE||page==INPUT_SETTINGS||page==SLEEP_TIMER||page==DOUBLE_CLICK||page==MIDDLEWARE_FIND||page==CONNECT_STATUS){if(scanRunning)cancelScan();connection.cancel();resumeWifi();returnSettings();return;}
   if(page==REMOTE_LIST){int origin=nav.returnCrumb;if(restoreMenu()){clearRemoteMenu=true;return;}returnSession(true);nav.crumb=origin;clearRemoteMenu=true;return;}
   if(page==CONFIRM){page=COMPOSE;nav.list(1,0,4);dirty=true;return;}
   returnSession();
@@ -464,7 +478,7 @@ void back(){
 void select(){
   cursor=nav.index;
   if(nav.focus==snowball::Focus::Top){
-    if(nav.crumb==0){menuHistory.clear();page=SETTINGS;nav.list(6,settingsIndex,0);}
+    if(nav.crumb==0){menuHistory.clear();page=SETTINGS;nav.list(SettingsCount,settingsIndex,0);}
     else if(nav.crumb==1){openMachines();discoverHost();}
     else openRemote(nav.crumb==2?"harnesses":nav.crumb==3?"projects":"sessions",nav.crumb);
   } else if(page==REMOTE_LIST||page==EDITOR_POPUP){if(!listInitial&&!pending)request("select",cursor);}
@@ -472,11 +486,19 @@ void select(){
   else if(page==SETTINGS){
     settingsIndex=cursor;
     if(cursor!=2)menuHistory.remember((int)page,nav);
-    if(cursor==0)scanWifi();else if(cursor==1){openMachines();discoverHost();}else if(cursor==2){contrast=!contrast;request("skin");}else if(cursor==3){page=DISPLAY_LANGUAGE;nav.list(2,displayKorean?1:0,0);}else if(cursor==4){page=INPUT_SETTINGS;nav.list(2,input.korean?1:0,0);}else {page=INFO;nav.list(8,0,0);nav.reader=true;}
+    if(cursor==0)scanWifi();else if(cursor==1){openMachines();discoverHost();}else if(cursor==2){contrast=!contrast;request("skin");}else if(cursor==3){page=DISPLAY_LANGUAGE;nav.list(2,displayKorean?1:0,0);}else if(cursor==4){page=INPUT_SETTINGS;nav.list(2,input.korean?1:0,0);}else if(cursor==6){page=SLEEP_TIMER;nav.list(snowball::SleepOptionCount,snowball::sleepOption(deviceSettings.sleepMinutes),0);}else if(cursor==7){page=DOUBLE_CLICK;nav.list(snowball::DoubleClickOptionCount,deviceSettings.doubleClickMs/5-1,0);}else {page=INFO;nav.list(8,0,0);nav.reader=true;}
   } else if(page==DISPLAY_LANGUAGE){
     displayKorean=cursor==1;prefs.putBool("displayKo",displayKorean);returnSettings();notice=tr(Ui::DisplayHints);request("poll");
   } else if(page==INPUT_SETTINGS){
     if(input.korean!=(cursor==1))toggleInputLanguage();returnSettings();notice=tr(Ui::InputSettingsHints);
+  } else if(page==SLEEP_TIMER){
+    uint8_t value=snowball::sleepMinutesAt(cursor);
+    if(prefs.putUInt("sleepMin",value)!=sizeof(uint32_t)){notice=tr(Ui::SettingsStorageFailed);dirty=true;return;}
+    deviceSettings.sleepMinutes=value;localActivity();returnSettings();notice=tr(Ui::SleepHints);
+  } else if(page==DOUBLE_CLICK){
+    uint16_t value=snowball::doubleClickAt(cursor);
+    if(prefs.putUInt("doubleMs",value)!=sizeof(uint32_t)){notice=tr(Ui::SettingsStorageFailed);dirty=true;return;}
+    deviceSettings.doubleClickMs=value;returnSettings();notice=tr(Ui::DoubleClickHints);
   } else if(page==MIDDLEWARE_FIND){
     if(cursor<2)menuHistory.remember((int)page,nav);
     if(cursor==0){openMachines();discoverHost();}else if(cursor==1)scanWifi();else back();
@@ -522,7 +544,7 @@ void move(int delta,bool paging=false){
   syncNavigation();auto crossing=nav.move(delta,paging);cursor=nav.index;
   if(crossing==snowball::Crossing::Editor&&page==SESSION_CONTENT){readerOffset=nav.index;beginCompose();return;}
   if(crossing==snowball::Crossing::Top&&page!=SESSION_CONTENT){
-    if(nav.returnCrumb==0){menuHistory.clear();page=SETTINGS;nav.configure(6,7,false);nav.index=settingsIndex;nav.crumb=0;nav.focus=snowball::Focus::Top;}
+    if(nav.returnCrumb==0){menuHistory.clear();page=SETTINGS;nav.configure(SettingsCount,7,false);nav.index=settingsIndex;nav.crumb=0;nav.focus=snowball::Focus::Top;}
     else returnSession(true);
   }
   if(crossing==snowball::Crossing::Content&&page==SETTINGS&&nav.crumb==4)returnSession(false);
@@ -554,6 +576,7 @@ void buttonAction(int button,snowball::Gesture event){
   }
 }
 void keyboard(uint8_t c){
+  if(localActivity())return; // Wake input never edits a draft or admits a command.
   // The original FACES AVR consumes bare Fn; Fn+Z emits 0xba.
   // 0xf0 is reserved for a panel firmware that exports the bare Fn event.
   if((page==COMPOSE||page==EDITOR_POPUP)&&(c==0xba||c==0xf0)){toggleFn();return;}
@@ -648,7 +671,7 @@ void handleSerial(const String&raw){
     String command=d["action"]|"";
     if(command=="up")move(-1);else if(command=="down")move(1);else if(command=="pgup")move(-1,true);else if(command=="pgdn")move(1,true);
     else if(command=="home"){nav.edge(false);dirty=true;}else if(command=="end"){nav.edge(true);dirty=true;}
-    else if(command=="select"&&(nav.focus==snowball::Focus::Top||page==REMOTE_LIST||page==DISPLAY_LANGUAGE||page==INPUT_SETTINGS||page==SETTINGS||page==INFO||page==MIDDLEWARE_FIND||page==MACHINES||(page==ACTIONS&&cursor>0)||(page==WIFI_LIST&&cursor<scanCount)))select();
+    else if(command=="select"&&(nav.focus==snowball::Focus::Top||page==REMOTE_LIST||page==DISPLAY_LANGUAGE||page==INPUT_SETTINGS||page==SLEEP_TIMER||page==DOUBLE_CLICK||page==SETTINGS||page==INFO||page==MIDDLEWARE_FIND||page==MACHINES||(page==ACTIONS&&cursor>0)||(page==WIFI_LIST&&cursor<scanCount)))select();
     else if(command=="left")keyboard(0xb4);
     else if(command=="content")returnSession();else if(command=="actions"){page=ACTIONS;nav.list(5,0,4);dirty=true;}
     else if(command=="reader"&&page==SESSION_CONTENT&&d["index"].is<int>()){
@@ -679,9 +702,9 @@ void handleSerial(const String&raw){
     String action=d["action"]|"";
     if(action=="display"&&d["korean"].is<bool>()){displayKorean=d["korean"].as<bool>();prefs.putBool("displayKo",displayKorean);notice=tr(Ui::DisplayHints);request("poll");}
     else if(action=="input"&&d["korean"].is<bool>()){if(input.korean!=d["korean"].as<bool>())toggleInputLanguage();}
-    else if(action=="settings"){menuHistory.clear();connection.cancel();page=SETTINGS;nav.list(6,settingsIndex,0);}
+    else if(action=="settings"){menuHistory.clear();connection.cancel();page=SETTINGS;nav.list(SettingsCount,settingsIndex,0);}
     else if(action=="display-menu"||action=="input-menu"){
-      menuHistory.clear();settingsIndex=action=="display-menu"?3:4;nav.list(6,settingsIndex,0);menuHistory.remember((int)SETTINGS,nav);
+      menuHistory.clear();settingsIndex=action=="display-menu"?3:4;nav.list(SettingsCount,settingsIndex,0);menuHistory.remember((int)SETTINGS,nav);
       page=action=="display-menu"?DISPLAY_LANGUAGE:INPUT_SETTINGS;nav.list(2,action=="display-menu"?(displayKorean?1:0):(input.korean?1:0),0);
     }
     else if(action=="find")findMiddleware();
@@ -713,6 +736,7 @@ void handleSerial(const String&raw){
     result["focus"]=nav.focus==snowball::Focus::Top?"top":"content";result["crumb"]=nav.crumb;result["cursor"]=nav.index;result["editCaret"]=(uint32_t)input.caret();result["viewportStart"]=nav.start();result["layoutOk"]=layoutOk;
     result["passwordVisible"]=page==WIFI_PASSWORD&&wifiEditing&&passwordVisible;result["passwordLength"]=page==WIFI_PASSWORD&&wifiEditing?wifiPassword.length():0;
     result["fnMenu"]=fnMenu;result["popupButton"]=popupButton;
+    result["sleepMinutes"]=deviceSettings.sleepMinutes;result["doubleClickMs"]=deviceSettings.doubleClickMs;result["displaySleeping"]=displayIdle.sleeping;
     serialJson(result);return;
   }
   // Hardware QA only: exercise the actual IME and display, never dispatch.
@@ -820,12 +844,14 @@ void draw(){
       canvas.fillRoundRect(315,34,3,track,1,card);canvas.fillRoundRect(315,34+bar.top,3,bar.height,1,accent);
       layoutOk=layoutOk&&34+bar.top+bar.height<snowball::BottomY;
     }
-  } else if(page==REMOTE_LIST||page==SETTINGS||page==ACTIONS||page==WIFI_LIST||page==DISPLAY_LANGUAGE||page==INPUT_SETTINGS||page==MIDDLEWARE_FIND||page==MACHINES||page==FORGET_PC){
+  } else if(page==REMOTE_LIST||page==SETTINGS||page==ACTIONS||page==WIFI_LIST||page==DISPLAY_LANGUAGE||page==INPUT_SETTINGS||page==SLEEP_TIMER||page==DOUBLE_CLICK||page==MIDDLEWARE_FIND||page==MACHINES||page==FORGET_PC){
     int start=nav.start(),total=nav.total,offset=remoteView["menuOffset"]|0;
     for(int row=0;row<7&&start+row<total;row++){
       int index=start+row,y=34+row*22;bool selected=nav.focus==snowball::Focus::Content&&index==nav.index;uint16_t color=selected?accent:card;
       canvas.fillRoundRect(7,y,306,21,3,color);canvas.setTextColor(selected?TFT_BLACK:TFT_WHITE,color);canvas.setCursor(12,y+3);String label;
-      if(page==SETTINGS)label=tr(settingsItems[index]);else if(page==ACTIONS)label=tr(actionItems[index]);
+      if(page==SETTINGS){label=tr(settingsItems[index]);if(index==6)label+=String(": ")+tr(sleepItems[snowball::sleepOption(deviceSettings.sleepMinutes)]);else if(index==7)label+=String(": ")+String(deviceSettings.doubleClickMs)+"ms";}else if(page==ACTIONS)label=tr(actionItems[index]);
+      else if(page==SLEEP_TIMER)label=String(index==snowball::sleepOption(deviceSettings.sleepMinutes)?"* ":"")+tr(sleepItems[index]);
+      else if(page==DOUBLE_CLICK)label=String(snowball::doubleClickAt(index)==deviceSettings.doubleClickMs?"* ":"")+String(snowball::doubleClickAt(index))+"ms";
       else if(page==DISPLAY_LANGUAGE)label=index==0?tr(Ui::DisplayEnglish):tr(Ui::DisplayKorean);
       else if(page==INPUT_SETTINGS)label=index==0?tr(Ui::English):tr(Ui::Korean);
       else if(page==MIDDLEWARE_FIND)label=index==0?tr(Ui::FindMiddleware):index==1?tr(Ui::WifiSettings):tr(Ui::Back);
@@ -841,7 +867,7 @@ void draw(){
       if(glyph)canvas.setCursor(36,y+3);canvas.print(fitText(label,glyph?271:295));
     }
     if(total==0){canvas.setTextColor(TFT_WHITE,bg);canvas.setCursor(10,45);canvas.print(pending||listInitial?tr(Ui::LoadingNative):tr(Ui::NoEntries));}
-    canvas.setFont(&fonts::efontKR_10);canvas.setTextColor(accent,bg);canvas.setCursor(8,193);canvas.print(fitText(page==WIFI_LIST?scanNotice:page==DISPLAY_LANGUAGE?String(tr(Ui::DisplayHints)):page==INPUT_SETTINGS?String(tr(Ui::InputSettingsHints)):notice,302));
+    canvas.setFont(&fonts::efontKR_10);canvas.setTextColor(accent,bg);canvas.setCursor(8,193);canvas.print(fitText((page==SLEEP_TIMER||page==DOUBLE_CLICK)&&notice==tr(Ui::SettingsStorageFailed)?notice:page==WIFI_LIST?scanNotice:page==DISPLAY_LANGUAGE?String(tr(Ui::DisplayHints)):page==INPUT_SETTINGS?String(tr(Ui::InputSettingsHints)):page==SLEEP_TIMER?String(tr(Ui::SleepHints)):page==DOUBLE_CLICK?String(tr(Ui::DoubleClickHints)):notice,302));
   } else if(page==COMPOSE||page==EDITOR_POPUP){
     canvas.setTextColor(accent,bg);canvas.setCursor(10,35);canvas.print(input.korean?tr(Ui::EditorKorean):tr(Ui::EditorEnglish));
     canvas.drawRoundRect(6,53,308,137,4,accent);canvas.setTextColor(TFT_WHITE,bg);
@@ -907,6 +933,7 @@ void setup(){
   for(int i=0;i<8;i++){char h[3];snprintf(h,3,"%02x",digest[i]);controllerId+=h;}
   prefs.begin("snowball",false);loadPairings();wifiSsid=prefs.getString("ssid","");wifiPassword=prefs.getString("password","");WiFi.persistent(false);
   input.korean=prefs.getBool("korean",false);displayKorean=prefs.getBool("displayKo",false);notice=tr(Ui::Welcome);
+  deviceSettings.load(prefs.getUInt("sleepMin",0),prefs.getUInt("doubleMs",snowball::DefaultDoubleClickMs));displayIdle.activity(millis());
   WiFi.onEvent([](WiFiEvent_t type,WiFiEventInfo_t event){
     if(type==ARDUINO_EVENT_WIFI_SCAN_DONE)scanEventStatus.store(event.wifi_scan_done.status);
     else if(type==ARDUINO_EVENT_WIFI_STA_GOT_IP)wifiAssociationReady.store(true);
@@ -914,14 +941,18 @@ void setup(){
   });
   WiFi.mode(WIFI_STA);WiFi.setAutoReconnect(true);
   if(wifiSsid.length()){connection.wifi(millis());page=CONNECT_STATUS;startWifiAssociation();}
-  else {page=SETTINGS;nav.list(6,0,0);}
+  else {page=SETTINGS;nav.list(SettingsCount,0,0);}
   discovery.begin(47773);reverseServer.begin();M5.BtnA.setHoldThresh(650);M5.BtnB.setHoldThresh(650);M5.BtnC.setHoldThresh(650);draw();hello();
 }
 void loop(){
   M5.update();
-  if(M5.BtnA.pressedFor(2500)&&M5.BtnB.pressedFor(2500)&&M5.BtnC.pressedFor(2500)){prefs.remove("pair");prefs.remove("hosts");pairings={};pairKey="";hostEpoch="";reverseClient.stop();reverseReady=false;remoteView.clear();lastResponse=0;notice=tr(Ui::ResetEnrollment);dirty=true;delay(500);}
   uint32_t now=millis();bool pressed[]={M5.BtnA.isPressed(),M5.BtnB.isPressed(),M5.BtnC.isPressed()};
-  for(int b=0;b<3;b++)buttonAction(b,gestures[b].update(now,pressed[b]));
+  bool anyPressed=pressed[0]||pressed[1]||pressed[2];
+  if(anyPressed&&localActivity())wakeButtons=true;
+  if(!wakeButtons){
+    if(M5.BtnA.pressedFor(2500)&&M5.BtnB.pressedFor(2500)&&M5.BtnC.pressedFor(2500)){prefs.remove("pair");prefs.remove("hosts");pairings={};pairKey="";hostEpoch="";reverseClient.stop();reverseReady=false;remoteView.clear();lastResponse=0;notice=tr(Ui::ResetEnrollment);dirty=true;delay(500);}
+    for(int b=0;b<3;b++)buttonAction(b,gestures[b].update(now,pressed[b],deviceSettings.doubleClickMs));
+  }else if(!anyPressed)wakeButtons=false;
   if(faces&&digitalRead(5)==LOW){Wire.requestFrom(0x08,1);if(Wire.available()){uint8_t c=Wire.read();if(c&&c!=0xff)keyboard(c);}}
   // Repeated large USB inspections must not starve LAN receipts or buttons.
   // Admit one complete frame per loop, with a bounded byte-read budget.
@@ -964,7 +995,8 @@ void loop(){
     if(page==SESSION_CONTENT&&nav.index!=(remoteView["contentOffset"]|0)){nextContentFetch=millis();request("read",nav.index);}
     else if((page==REMOTE_LIST||page==EDITOR_POPUP)&&!listInitial&&String(remoteView["menuKind"]|"")==expectedMenu){int offset=remoteView["menuOffset"]|0;if(nav.start()!=offset){nextContentFetch=millis();request("browse",nav.index);}}
   }
-  if(dirty)draw();
+  if(displayIdle.update(millis(),deviceSettings.sleepMinutes))M5.Display.setBrightness(0);
+  if(dirty&&!displayIdle.sleeping)draw();
   if(captureConnectionPhase>=0){
     if(page==CONNECT_STATUS&&(int)connection.phase==captureConnectionPhase){captureConnectionPhase=-1;screenshot(true);}
     else if(millis()-captureRequestedAt>=25000){captureConnectionPhase=-1;StaticJsonDocument<128> error;error["type"]="screen_error";error["code"]="observed_phase_unavailable";serialJson(error);}

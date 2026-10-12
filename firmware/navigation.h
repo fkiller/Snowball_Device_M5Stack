@@ -8,12 +8,13 @@ enum class Gesture { None, Click, Hold, Repeat, Double };
 class ButtonGesture {
   bool down=false,held=false,waiting=false,second=false;
   uint32_t pressedAt=0,releasedAt=0,repeatedAt=0;
+  uint16_t clickWindow=250;
 public:
-  Gesture update(uint32_t now,bool pressed){
+  Gesture update(uint32_t now,bool pressed,uint16_t doubleClickMs=250){
     Gesture event=Gesture::None;
-    if(waiting&&!down&&now-releasedAt>=250){waiting=false;event=Gesture::Click;}
+    if(waiting&&!down&&now-releasedAt>=clickWindow){waiting=false;event=Gesture::Click;}
     if(pressed&&!down){down=true;pressedAt=now;held=false;second=waiting;waiting=false;}
-    else if(!pressed&&down){down=false;if(!held){if(second){event=Gesture::Double;second=false;}else{waiting=true;releasedAt=now;}}}
+    else if(!pressed&&down){down=false;if(!held){if(second){event=Gesture::Double;second=false;}else{waiting=true;releasedAt=now;clickWindow=doubleClickMs;}}}
     if(down&&!held&&now-pressedAt>=500){held=true;waiting=false;second=false;repeatedAt=now;event=Gesture::Hold;}
     else if(down&&held&&now-repeatedAt>=180){repeatedAt=now;event=Gesture::Repeat;}
     return event;
