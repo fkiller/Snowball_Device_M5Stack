@@ -43,6 +43,12 @@ int main(){
   for(int i=0;i<SleepOptionCount;i++)assert(sleepOption(sleepMinutesAt(i))==i);
   for(int i=0;i<DoubleClickOptionCount;i++){stored.load(10,doubleClickAt(i));assert(stored.doubleClickMs==doubleClickAt(i));}
   DisplayIdle idle;idle.activity(1);assert(!idle.update(1000000,0)); // Off
+  // Explicit sleep works with the idle timer Off and survives background ticks.
+  idle.sleep();assert(idle.sleeping&&idle.lastInput==1);
+  assert(!idle.update(1000001,0)&&idle.sleeping);
+  assert(!idle.update(1000002,1)&&idle.sleeping);
+  assert(idle.activity(1000003)&&!idle.sleeping);
+  assert(!idle.activity(1000004));assert(!idle.update(1060003,1));
   for(uint8_t minutes:{1,5,10}){
     idle.activity(100);assert(!idle.update(99+minutes*60000,minutes));
     assert(idle.update(100+minutes*60000,minutes));assert(idle.sleeping);
@@ -75,12 +81,15 @@ int main(){
   assert(history.restore(11,parent,password)&&parent==8);assert(!history.restore(8,parent,password));
   history.remember(8,settings);history.clear();assert(!history.restore(13,parent,password));
   for(int setting:{6,7}){
-    settings.list(8,setting,0);assert(settings.start()==1);
+    settings.list(9,setting,0);assert(settings.start()==2);
     history.remember(8,settings);Navigation choice;choice.list(setting==6?SleepOptionCount:DoubleClickOptionCount,0,0);
     choice.edge(true);assert(choice.index==(setting==6?3:99));
     assert(history.restore(setting==6?17:18,parent,choice));
-    assert(parent==8&&choice.index==setting&&choice.total==8&&choice.start()==1);
+    assert(parent==8&&choice.index==setting&&choice.total==9&&choice.start()==2);
   }
+  settings.list(9,8,0);assert(settings.start()==2);
+  idle.sleep();assert(settings.index==8&&settings.total==9);
+  assert(idle.activity(2000000));assert(settings.index==8&&settings.start()==2);
   for(int total:{0,1,12,13,100,100000}){
     int maximum=std::max(0,total-ContentRows);auto first=scrollbar(total,ContentRows,0,175),last=scrollbar(total,ContentRows,maximum,175);
     assert(first.top==0&&first.height>0&&first.height<=175);

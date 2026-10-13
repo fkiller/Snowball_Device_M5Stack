@@ -80,7 +80,7 @@ static uint32_t captureRequestedAt=0;
 
 enum Page { SESSION_CONTENT=0, HOME=0, READ_REPLY=0, REMOTE_LIST=1, COMPOSE=2, CONFIRM=3, WIFI_LIST=4, WIFI_PASSWORD=5, INFO=7, SETTINGS=8, ACTIONS=9, CONNECT_STATUS=10, MIDDLEWARE_FIND=11, DISPLAY_LANGUAGE=12, INPUT_SETTINGS=13, EDITOR_POPUP=14, MACHINES=15, FORGET_PC=16, SLEEP_TIMER=17, DOUBLE_CLICK=18 };
 static Page page=SESSION_CONTENT;
-static const Ui settingsItems[]={Ui::WifiSettings,Ui::FindMiddleware,Ui::Theme,Ui::DisplayLanguage,Ui::InputSettings,Ui::DeviceInfo,Ui::SleepTimer,Ui::DoubleClick};
+static const Ui settingsItems[]={Ui::WifiSettings,Ui::FindMiddleware,Ui::Theme,Ui::DisplayLanguage,Ui::InputSettings,Ui::DeviceInfo,Ui::SleepTimer,Ui::DoubleClick,Ui::Sleep};
 static constexpr int SettingsCount=sizeof(settingsItems)/sizeof(settingsItems[0]);
 static const Ui sleepItems[]={Ui::Off,Ui::OneMinute,Ui::FiveMinutes,Ui::TenMinutes};
 static const Ui actionItems[]={Ui::Compose,Ui::Model,Ui::Effort,Ui::Refresh,Ui::BackContent};
@@ -91,6 +91,10 @@ bool localActivity(){
   M5.Display.setBrightness(160);dirty=true;
   for(auto& gesture:gestures)gesture={};
   return true;
+}
+void sleepDisplay(){
+  displayIdle.sleep();M5.Display.setBrightness(0);
+  for(auto& gesture:gestures)gesture={};
 }
 
 String randomHex(size_t bytes){String s;for(size_t i=0;i<bytes;i++){uint8_t b=esp_random()&255;char h[3];snprintf(h,3,"%02x",b);s+=h;}return s;}
@@ -485,6 +489,7 @@ void select(){
   else if(page==SESSION_CONTENT)beginCompose();
   else if(page==SETTINGS){
     settingsIndex=cursor;
+    if(settingsItems[cursor]==Ui::Sleep){sleepDisplay();return;}
     if(cursor!=2)menuHistory.remember((int)page,nav);
     if(cursor==0)scanWifi();else if(cursor==1){openMachines();discoverHost();}else if(cursor==2){contrast=!contrast;request("skin");}else if(cursor==3){page=DISPLAY_LANGUAGE;nav.list(2,displayKorean?1:0,0);}else if(cursor==4){page=INPUT_SETTINGS;nav.list(2,input.korean?1:0,0);}else if(cursor==6){page=SLEEP_TIMER;nav.list(snowball::SleepOptionCount,snowball::sleepOption(deviceSettings.sleepMinutes),0);}else if(cursor==7){page=DOUBLE_CLICK;nav.list(snowball::DoubleClickOptionCount,deviceSettings.doubleClickMs/5-1,0);}else {page=INFO;nav.list(8,0,0);nav.reader=true;}
   } else if(page==DISPLAY_LANGUAGE){
@@ -951,7 +956,7 @@ void loop(){
   if(anyPressed&&localActivity())wakeButtons=true;
   if(!wakeButtons){
     if(M5.BtnA.pressedFor(2500)&&M5.BtnB.pressedFor(2500)&&M5.BtnC.pressedFor(2500)){prefs.remove("pair");prefs.remove("hosts");pairings={};pairKey="";hostEpoch="";reverseClient.stop();reverseReady=false;remoteView.clear();lastResponse=0;notice=tr(Ui::ResetEnrollment);dirty=true;delay(500);}
-    for(int b=0;b<3;b++)buttonAction(b,gestures[b].update(now,pressed[b],deviceSettings.doubleClickMs));
+    for(int b=0;b<3&&!displayIdle.sleeping;b++)buttonAction(b,gestures[b].update(now,pressed[b],deviceSettings.doubleClickMs));
   }else if(!anyPressed)wakeButtons=false;
   if(faces&&digitalRead(5)==LOW){Wire.requestFrom(0x08,1);if(Wire.available()){uint8_t c=Wire.read();if(c&&c!=0xff)keyboard(c);}}
   // Repeated large USB inspections must not starve LAN receipts or buttons.
@@ -995,7 +1000,7 @@ void loop(){
     if(page==SESSION_CONTENT&&nav.index!=(remoteView["contentOffset"]|0)){nextContentFetch=millis();request("read",nav.index);}
     else if((page==REMOTE_LIST||page==EDITOR_POPUP)&&!listInitial&&String(remoteView["menuKind"]|"")==expectedMenu){int offset=remoteView["menuOffset"]|0;if(nav.start()!=offset){nextContentFetch=millis();request("browse",nav.index);}}
   }
-  if(displayIdle.update(millis(),deviceSettings.sleepMinutes))M5.Display.setBrightness(0);
+  if(displayIdle.update(millis(),deviceSettings.sleepMinutes))sleepDisplay();
   if(dirty&&!displayIdle.sleeping)draw();
   if(captureConnectionPhase>=0){
     if(page==CONNECT_STATUS&&(int)connection.phase==captureConnectionPhase){captureConnectionPhase=-1;screenshot(true);}

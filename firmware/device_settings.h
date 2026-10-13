@@ -19,9 +19,10 @@ class DisplayIdle {
 public:
   uint32_t lastInput=0;
   bool sleeping=false;
+  void sleep(){sleeping=true;}
   bool activity(uint32_t now){bool woke=sleeping;lastInput=now;sleeping=false;return woke;}
   bool update(uint32_t now,uint8_t minutes){
-    if(!sleeping&&minutes&&now-lastInput>=static_cast<uint32_t>(minutes)*60000){sleeping=true;return true;}
+    if(!sleeping&&minutes&&now-lastInput>=static_cast<uint32_t>(minutes)*60000){sleep();return true;}
     return false;
   }
 };

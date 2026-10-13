@@ -114,6 +114,7 @@ enum class Ui {
   SleepHints,
   DoubleClickHints,
   SettingsStorageFailed,
+  Sleep,
 };
 inline const char* translate(Ui key,bool korean){
   static const char* const strings[][2]={
@@ -229,6 +230,7 @@ inline const char* translate(Ui key,bool korean){
     {"Idle screen off; any key wakes","미사용 시 화면 끄기 · 버튼/키로 켜기"},
     {"5-500ms / 5ms steps","5-500ms · 5ms 단위"},
     {"Settings could not be saved","설정을 저장할 수 없습니다"},
+    {"Sleep","절전"},
   };
   return strings[static_cast<size_t>(key)][korean?1:0];
 }

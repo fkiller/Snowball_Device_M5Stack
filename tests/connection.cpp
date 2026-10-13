@@ -28,6 +28,8 @@ int main(){
   const auto draft=input.text();
   assert(std::strcmp(translate(Ui::WifiSettings,false),"Wi-Fi settings")==0);
   assert(std::strcmp(translate(Ui::WifiSettings,true),"Wi-Fi 설정")==0);
+  assert(std::strcmp(translate(Ui::Sleep,false),"Sleep")==0);
+  assert(std::strcmp(translate(Ui::Sleep,true),"절전")==0);
   assert(input.korean&&input.text()==draft); // rendering language never mutates IME
   std::cout<<"Observed connection transitions, deadlines, wraparound and locale/input isolation passed\n";
 }
