@@ -27,7 +27,7 @@
 
 **Install Snowball once per PC.** The default installation includes the Web UI, MK20 discovery/transport and speech runtime, M5Stack discovery/gateway, and all three Codex/Antigravity/OpenCode harness plugins. No device profile selection or connected USB device is needed.
 
-Choose your platform below, then use the code block’s **Copy** button on GitHub. README Markdown supports these expandable selectors; interactive tabs require a documentation website.
+Expand your platform and copy its command.
 
 <details open>
 <summary><strong>Windows · PowerShell</strong></summary>
@@ -56,36 +56,82 @@ curl -fsSL https://raw.githubusercontent.com/fkiller/Snowball_Middleware/main/in
 
 </details>
 
-Windows prepares Node/Git/Python; macOS/Linux require curl, Git and Python >=3.12 with venv/pip and prepare a checksum-verified Node LTS locally. The installer builds the companion components, checks the actual isolated harness workers, and starts a hidden per-user background application with a tray icon. The terminal returns after the owned runtime responds. The tray provides Web UI, status, Settings, Pause/Resume, Restart, Quit and login startup. Web UI stays on **http://127.0.0.1:8765/**. Default locations: Windows `%LOCALAPPDATA%\Snowball`, macOS `~/Library/Application Support/Snowball`, Linux `${XDG_DATA_HOME:-~/.local/share}/Snowball`. **Start-Snowball.ps1** (Windows) / **Start-Snowball.sh** (macOS/Linux) restart it without downloading dependencies. Missing native harness applications remain unavailable until installed and signed in through their vendors.
+After installation, open the tray icon to launch the Web UI at **http://127.0.0.1:8765/** or manage Settings, Pause/Resume and login startup. Windows prepares Node/Git/Python. macOS/Linux need curl, Git and Python >=3.12 with venv/pip; Linux also needs a graphical desktop and Electron system libraries. Install and sign in to native harness applications through their vendors.
 
-For updates, use the same `-InstallRoot` with `-Update` on Windows, or `--root PATH --update` on macOS/Linux, and omit the profile option. For example, download `install.sh` and run `bash install.sh --root "$HOME/.local/share/Snowball" --update` on Linux (use your existing root). Old single-device installs gain both adapters while preserving device settings, pairing keys, controller state, speech caches, custom API port and login startup preference. An absent or ambiguous private LAN leaves automatic discovery waiting while the Web UI remains available; use `-Bind PRIVATE_PC_IP` (Windows) / `--bind PRIVATE_PC_IP` (macOS/Linux) when needed.
+<a id="update-snowball"></a>
+## Update Snowball
 
-MK20 joins Wi-Fi independently: press K17 (Machines), choose a PC and pair/select it. M5Stack firmware **0.4.0 and later** automatically discovers registered and new middleware PCs on the same LAN. Select a New PC in Machines to pair over Wi-Fi. Adding a PC requires only the complete middleware installation: no device-specific install, USB connection or registration script. Use a trusted private LAN with device ports allowed, the same broadcast subnet and no client isolation.
+### 1. Update PC software
 
-For initial M5Stack preparation or firmware upgrades, **connect USB and use the automatically opened device setup window**, also available from the tray’s **Device setup…** menu. It shows installed/included versions and improvements; only your Install/Update selection starts a full private flash backup, firmware write, retained Wi-Fi/pairing storage verification and automatic reboot check. See the [included firmware version and improvements](https://github.com/fkiller/Snowball_Device_M5Stack/blob/main/firmware/release.json). If no network is saved, the default reviewed option imports this PC’s connected Wi-Fi after the update when the OS permits it; an existing network is never replaced. OS passwords are read only after that choice and never appear in the UI/logs. If import is unavailable, the same window visually guides Settings → Wi-Fi, network selection and password entry on the FACES keyboard. Original ESP32 Core 4MB/16MB only; CP210x alone does not prove the model, and firmware without a Snowball response requires physical model confirmation. Builds may download missing toolchains. Firmware 0.3.0 and earlier need one device upgrade for LAN discovery of new PCs. Optional `Register-M5Stack.ps1` / `.sh` remain legacy maintenance tools; ordinary installation and `-Update` never silently flash a device.
+**Use your existing installation folder.** The examples below use the default folder; change the first line if you installed elsewhere (for example, `Snowball-LAN`). Omit the device profile option.
 
-During M5Stack full-flash backup, Device setup shows the actual read percentage, MiB and elapsed time. A 16MB USB read can take several minutes; the backup file appears only after the read finishes. Reading 100% still requires size/hash verification before firmware writing. Keep USB connected throughout. Full backups are read in 1 MiB chunks; a failed chunk is retried once at a lower USB serial speed. If both reads fail, writing is blocked and the tool attempts to restart and verify the existing firmware.
+<details open>
+<summary><strong>Windows · PowerShell</strong></summary>
 
-<p align="center">
-  <img src="assets/screenshots/en/device-setup.png" width="100%" alt="M5Stack device setup in English showing installed and included firmware 0.5.2 and retained Wi-Fi"><br>
-  <em>User-provided capture, 2026-10-12: installed and included firmware both show 0.5.2; saved Wi-Fi is retained and currently disconnected.</em>
-</p>
+```powershell
+$installRoot = Join-Path $env:LOCALAPPDATA 'Snowball'
+& ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/fkiller/Snowball_Middleware/main/install.ps1'))) -InstallRoot $installRoot -Update
+```
 
-All devices, including MK20 and future devices, follow the same **Device setup…** journey: detection, version/improvements, consent, verified recovery backup, preserved settings, update/reboot and network setup/visual guidance. Supported adapters are bundled by default; no per-device registration script is required. MK20 runtime 0.2.5 adds a USB receiver: the SD card stays inside while the entire affected runtime partition is backed up, fixed runtime files are transferred and an automatic reboot is verified against running-image hashes. QMK retains its separate DFU/readback path. A card reader is an advanced recovery tool, not a normal journey step. Existing firmware without the USB receiver still needs initial migration; a middleware update cannot install a receiver into unreachable legacy firmware. The common guide now shows MK20’s actual 20-key/two-knob matrix and M5Stack Core’s A/B/C plus FACES controls with interactive instructions. Tutorial navigation never controls hardware or claims a live connection. M5Stack 0.5.2 has passed physical post-update backup/Wi-Fi and two-PC LAN checks (see the central verification record); MK20 first USB migration/update acceptance remains unresolved. Ordinary LAN pairing and all three harness contracts are unchanged.
+</details>
 
-Firmware **0.5.2** also fixes a device restart when selecting a new PC: bounded pairing documents use heap memory, and the native loop stack has 16 KiB of space. USB diagnostics report its minimum remaining stack space. This follows an actual 0.5.0 failure reproduced over USB, with the matching firmware ELF identifying stack exhaustion before the first pairing HTTP request. The legacy-key choice and late authenticated retry recovery from 0.5.1 remain included. Saved Wi-Fi and PC keys remain intact. Physical verification on 2026-10-12 confirmed firmware 0.5.2, a valid 16MB backup, retained Wi-Fi/legacy pairing and authenticated LAN pairing with MINIME-PC-AMD and SNOWBALL-395. Repeated switching reached each PC's actual Codex/Antigravity session content without restarting. USB invoked native navigation handlers only; LAN handled pairing/control. No prompt was sent. Manual button operation and MK20 first USB migration remain separate field checks. A PC update alone does not change device firmware; use the reviewed, backed-up update in Device setup.
+<details>
+<summary><strong>macOS · Terminal</strong></summary>
 
-On Windows, allow the middleware Node.js process on your private network when Windows asks. Denying network access can block LAN discovery and selection even while the background middleware and USB detection work. The local Web UI remains loopback-only.
+```bash
+install_root="$HOME/Library/Application Support/Snowball"
+curl -fsSL https://raw.githubusercontent.com/fkiller/Snowball_Middleware/main/install.sh | bash -s -- --root "$install_root" --update
+```
 
-Options: `-Update`, `-InstallRoot PATH`, `-Bind PRIVATE_PC_IP`, `-Port 8765`, `-NoStart`, `-NoShortcut`. `-Profile web|mk20|m5stack` remains an explicit development/diagnostic subset option, not the normal installation flow; it retains adapters already installed in that root. macOS/Linux: `--update`, `--root PATH`, `--bind PRIVATE_PC_IP`, `--port 8765`, `--no-start`, `--no-shortcut`, `--python PATH`, `--data-dir PATH`; `bash install.sh --help` lists all options. Linux requires a graphical desktop, Electron system libraries and user access to device USB/serial interfaces; no sandbox bypass or automatic USB permission changes are used. Linux Wi-Fi import may be unavailable: use the common device setup guide. macOS/Linux interactive device acceptance remains separate from automated tests. See the central specification for protocol, authentication and field-verification limits.
+</details>
 
-[Common architecture and repository ownership](https://github.com/fkiller/Snowball_Control/blob/main/docs/ARCHITECTURE.md)
+<details>
+<summary><strong>Linux · Terminal</strong></summary>
 
-[Control · MK20](https://github.com/fkiller/Snowball_Control) · [Middleware · Installer / Web UI](https://github.com/fkiller/Snowball_Middleware) · [Device · M5Stack](https://github.com/fkiller/Snowball_Device_M5Stack) · Harness: [Codex](https://github.com/fkiller/Snowball_Harness_Codex), [Antigravity](https://github.com/fkiller/Snowball_Harness_Antigravity), [OpenCode](https://github.com/fkiller/Snowball_Harness_OpenCode)
+```bash
+install_root="${XDG_DATA_HOME:-$HOME/.local/share}/Snowball"
+curl -fsSL https://raw.githubusercontent.com/fkiller/Snowball_Middleware/main/install.sh | bash -s -- --root "$install_root" --update
+```
+
+</details>
+
+The update preserves device settings, pairing keys, controller state, speech caches, the API port and login startup preference. Older single-device installations gain both bundled device adapters. PC updates refresh the **Included** firmware candidate; device firmware is updated separately below.
+
+<a id="update-device"></a>
+### 2. Update device firmware
+
+1. After the PC update, connect the device with a USB data cable and open **Device setup…** from the tray.
+2. Select the device and compare **Installed → Included** and the listed improvements.
+3. Confirm the device, then choose **Install / Update**. The window verifies a recovery backup and preserves settings before writing.
+4. Keep USB connected until the window confirms reboot and the running version. Follow the Wi-Fi guide if needed.
+
+[Device-specific steps and recovery](https://github.com/fkiller/Snowball_Middleware#update-device) · [Current M5Stack firmware and improvements](https://github.com/fkiller/Snowball_Device_M5Stack/blob/main/firmware/release.json)
+
+## Connect a device to a PC
+
+MK20: connect Wi-Fi, press **K17 · Machines**, and select the PC. M5Stack firmware 0.4.0 or later: select the registered or new PC in **Machines** to pair over LAN. Adding a PC needs the full PC installation; USB registration scripts are unnecessary. Use the same trusted private LAN with device ports allowed and client isolation disabled.
+
+<details>
+<summary><strong>Advanced options</strong></summary>
+
+| Purpose | Windows | macOS / Linux |
+| --- | --- | --- |
+| Existing installation folder | `-InstallRoot PATH` | `--root PATH` |
+| Choose a private LAN interface | `-Bind PRIVATE_PC_IP` | `--bind PRIVATE_PC_IP` |
+| Custom API port | `-Port PORT` | `--port PORT` |
+| Install without starting | `-NoStart` | `--no-start` |
+| Skip shortcuts | `-NoShortcut` | `--no-shortcut` |
+| Diagnostic subset | `-Profile web\|mk20\|m5stack` | `--profile web\|mk20\|m5stack` |
+
+Normal installation/update includes both devices and all three harnesses. If LAN selection is unavailable or ambiguous, discovery waits while the local Web UI stays available. On Windows, allow the middleware Node.js process on your private network when Windows asks. Linux USB/serial access uses your normal OS permissions. Run `bash install.sh --help` for Unix options. **Start-Snowball.ps1** / **Start-Snowball.sh** in the installation folder restart without downloading.
+
+</details>
+
+[Common architecture and verification limits](https://github.com/fkiller/Snowball_Control/blob/main/docs/ARCHITECTURE.md)
+
+[Control · MK20](https://github.com/fkiller/Snowball_Control) · [Middleware](https://github.com/fkiller/Snowball_Middleware) · [M5Stack](https://github.com/fkiller/Snowball_Device_M5Stack) · Harness: [Codex](https://github.com/fkiller/Snowball_Harness_Codex), [Antigravity](https://github.com/fkiller/Snowball_Harness_Antigravity), [OpenCode](https://github.com/fkiller/Snowball_Harness_OpenCode)
 
 ---
-
-Native ESP32 firmware and a Snowball Protocol 1 hardware plugin for the original M5Stack Core / Gray and FACES QWERTY panel. The first release accepts English and Korean two-beolsik keyboard input; it does not capture audio or use a PC microphone.
 
 ## Physical hardware demo
 
