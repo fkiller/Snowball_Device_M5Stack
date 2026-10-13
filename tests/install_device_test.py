@@ -19,6 +19,46 @@ sys.path.insert(0, str(source.parent))
 from os_wifi import profile_credentials
 
 class FlashConfig(unittest.TestCase):
+    @staticmethod
+    def same_wifi_append():
+        # NVS-format fixture only: no USB response, device or flash is simulated.
+        before = bytearray(b'\xff' * 0x5000)
+        before[:4] = struct.pack('<I', 0xfffffffe)
+        entry = struct.pack('<BBBBI16sQ', 6, 4, 1, 255, 0x12345678, b'WIFI_STA_DEF', 7)
+        before[64:96] = entry
+        before[32] = 0xfe  # entry 0 written; remaining entries empty
+        after = bytearray(before)
+        after[32] = 0xf8  # entry 0 erased; entry 1 written
+        after[96:128] = entry
+        return before, after
+
+    def test_nvs_accepts_exact_bytes_and_one_identical_wifi_driver_append(self):
+        before, after = self.same_wifi_append()
+        self.assertTrue(installer.nvs_preserved(before, before))
+        self.assertTrue(installer.nvs_preserved(before, after))
+        self.assertFalse(installer.nvs_preserved(after, before), 'not a forward append')
+
+    def test_nvs_rejects_value_key_namespace_header_or_unrelated_byte_changes(self):
+        before, after = self.same_wifi_append()
+        for offset in (96, 97, 98, 100, 104, 120, 124, 4, 63, 4096, 160):
+            with self.subTest(offset=offset):
+                changed = bytearray(after)
+                changed[offset] ^= 1
+                self.assertFalse(installer.nvs_preserved(before, changed))
+        for size in (0, 4096, 0x5000-1, 0x5000+1):
+            self.assertFalse(installer.nvs_preserved(before, b'\xff'*size))
+
+    def test_nvs_rejects_added_deleted_or_other_key_rewrites(self):
+        before, after = self.same_wifi_append()
+        added = bytearray(after); added[32] = 0xfa  # keep both entries written
+        self.assertFalse(installer.nvs_preserved(before, added))
+        removed = bytearray(after); removed[96:128] = b'\xff'*32; removed[32] = 0xfc
+        self.assertFalse(installer.nvs_preserved(before, removed))
+        other_before, other_after = bytearray(before), bytearray(after)
+        other_before[72:88] = b'password' + b'\0'*8
+        other_after[72:88] = other_after[104:120] = other_before[72:88]
+        self.assertFalse(installer.nvs_preserved(other_before, other_after))
+
     def test_chunk_assembly_retries_only_failed_range_at_lower_baud_and_keeps_progress_monotonic(self):
         # Filesystem/assembler fault injection only; no device acceptance claim.
         with tempfile.TemporaryDirectory() as directory:

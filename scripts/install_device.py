@@ -181,6 +181,45 @@ def validate_flash_plan(plan, original, capacity):
         ranges.append((start, end))
     return target
 
+def nvs_preserved(before, after):
+    """Retain every byte, except one proven identical SDK Wi-Fi append.
+
+    ESP-IDF can append WIFI_STA_DEF and mark its identical previous entry
+    erased. This changes storage bookkeeping without changing any value.
+    Do not accept general compaction, new keys, changed values or blob moves.
+    """
+    if len(before) != 0x5000 or len(after) != len(before):
+        return False
+    if before == after:
+        return True
+    removed, added = [], []
+    for page in range(5):
+        old, new = before[page*4096:(page+1)*4096], after[page*4096:(page+1)*4096]
+        if old == new:
+            continue
+        if old[:32] != new[:32] or int.from_bytes(old[:4], 'little') not in (0xfffffffe, 0xfffffffc) or (old[63] & 0xf0) != (new[63] & 0xf0):
+            return False
+        for index in range(126):
+            start = 64 + index*32
+            a, b = old[start:start+32], new[start:start+32]
+            sa = (old[32+index//4] >> (2*(index % 4))) & 3
+            sb = (new[32+index//4] >> (2*(index % 4))) & 3
+            if sa == sb and a == b:
+                continue
+            if (sa, sb) == (2, 0) and a == b:
+                removed.append((page, index, a))
+            elif (sa, sb) == (3, 2) and a == b'\xff'*32:
+                added.append((page, index, b))
+            else:
+                return False
+    if len(removed) != 1 or len(added) != 1:
+        return False
+    page, index, entry = removed[0]
+    return (added[0][0] == page and added[0][1] > index and added[0][2] == entry
+            and 0 < entry[0] < 255 and entry[1:3] == b'\x04\x01'
+            and entry[8:24].split(b'\0', 1)[0] == b'WIFI_STA_DEF')
+
+
 def install_firmware(port, backup_directory, progress=lambda phase, **details: None):
     # Nothing below is invoked by detection. The UI/CLI must explicitly approve.
     progress('identify')
@@ -219,7 +258,7 @@ def install_firmware(port, backup_directory, progress=lambda phase, **details: N
     retained = backup.with_suffix('.nvs-check')
     try:
         run(['-m', 'esptool', '--port', port, '--chip', 'esp32', '--baud', '460800', '--after', 'no_reset', 'read_flash', hex(nvs_start), str(nvs_size), str(retained)], capture=True)
-        if retained.read_bytes() != original[nvs_start:nvs_start + nvs_size]:
+        if not nvs_preserved(original[nvs_start:nvs_start + nvs_size], retained.read_bytes()):
             raise RuntimeError('nvs_preservation_failed_restore_backup')
     finally:
         retained.unlink(missing_ok=True)

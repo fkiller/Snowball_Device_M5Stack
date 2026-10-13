@@ -4,11 +4,13 @@
   "date": "2026-10-12",
   "changes": {
     "en": [
+      "The PC USB updater recognizes a byte-identical Wi-Fi driver record append without reporting lost settings. Other storage changes still block completion and retain the full backup.",
       "Adds Sleep at the bottom of the main Settings menu, after Double Click. Select it with B or Enter to turn the screen off immediately, including when Sleep Timer is Off.",
       "An A/B/C button or FACES key wakes the screen without executing that first input. Wi-Fi, pending native receipts, the selected menu row and drafts remain active or retained.",
       "Retains Sleep Timer and Double Click preferences, Wi-Fi and paired PCs. The original Core/FACES side power button remains a hardware reset; use the Sleep menu for screen sleep."
     ],
     "ko": [
+      "PC USB 업데이트 도구가 값이 동일한 Wi-Fi 드라이버 레코드 재기록을 설정 손실로 오판하지 않습니다. 다른 저장 영역 변경은 계속 완료를 차단하고 전체 백업을 보존합니다.",
       "메인 설정 메뉴 맨 아래, 더블 클릭 다음에 절전을 추가했습니다. B나 Enter로 선택하면 절전 타이머가 꺼져 있어도 즉시 화면을 끕니다.",
       "A/B/C 버튼이나 FACES 키로 깨우며 첫 입력은 실행하지 않습니다. Wi-Fi·진행 중 네이티브 응답 수신을 유지하고 선택한 메뉴 행과 초안을 보존합니다.",
       "절전 타이머·더블 클릭 설정과 Wi-Fi·등록 PC를 유지합니다. 기존 Core/FACES 측면 전원 버튼은 하드웨어 리셋이므로 화면 절전에는 메뉴의 절전을 사용하세요."
