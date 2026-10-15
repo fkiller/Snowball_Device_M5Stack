@@ -10,6 +10,9 @@ struct ConnectionFlow {
   uint32_t changedAt=0;
   void wifi(uint32_t now){phase=ConnectionPhase::Wifi;changedAt=now;}
   void middleware(uint32_t now){phase=ConnectionPhase::Middleware;changedAt=now;}
+  // Transport authentication is not a connected native view. Retry needs a
+  // fresh read even though its ordinary background polling is paused.
+  bool needsViewAfterTransport(bool retryPage)const{return retryPage||phase==ConnectionPhase::Middleware;}
   void authenticated(uint32_t now,bool retryPage=false){
     if(phase==ConnectionPhase::Idle&&retryPage)middleware(now);
     if(phase==ConnectionPhase::Middleware){phase=ConnectionPhase::Connected;changedAt=now;}

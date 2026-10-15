@@ -1,14 +1,16 @@
 {
-  "version": "0.5.5",
+  "version": "0.5.6",
   "board": "m5stack-core-esp32",
   "date": "2026-10-15",
   "changes": {
     "en": [
+      "After a delayed reverse authentication, Retry now requests the actual selected middleware view instead of remaining stalled. PC changes retire stale reverse listeners; reselecting an already authenticated PC preserves that connection.",
       "Machine choices show only PCs with a real host identity. Unresolved legacy pairing keys remain private for authenticated migration and no longer appear as a fictitious Previously paired PC.",
       "Reader input immediately moves cached native rows and the scrollbar. Rows not received yet show loading while the selected middleware responds, instead of leaving the previous viewport apparently frozen.",
       "Preserves Wi-Fi, paired PC keys, drafts, Sleep and Double Click settings. This release does not change native harness dispatch or approval policies."
     ],
     "ko": [
+      "늦게 역방향 인증된 뒤 재시도 화면에서도 선택한 미들웨어의 실제 화면을 조회합니다. PC 변경 시 이전 역방향 연결 대기를 정리하고, 이미 인증된 같은 PC를 다시 고르면 연결을 유지합니다.",
       "실제 호스트 식별자가 있는 PC만 머신 선택 목록에 표시합니다. 식별되지 않은 구 페어링 키는 인증 이관용으로 비공개 보존하며 가상의 기존 등록 PC로 표시하지 않습니다.",
       "읽기 입력 시 이미 받은 실제 내용과 스크롤바를 즉시 이동합니다. 아직 받지 못한 행은 미들웨어 응답 동안 불러오는 중으로 표시하여 이전 화면이 멈춘 것처럼 남지 않게 합니다.",
       "Wi-Fi·등록 PC 키·초안·절전·더블 클릭 설정을 보존합니다. 하네스 실행이나 승인 정책은 변경하지 않습니다."

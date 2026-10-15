@@ -132,8 +132,11 @@ void loadPairings(){
 bool selectHost(int index){
   auto next=pairings;if(!next.choose(index,pendingSend))return false;
   if(!savePairings(next)){notice=tr(Ui::PairingStorageFailed);dirty=true;return false;}
-  reverseClient.stop();reverseReady=false;reverseLine="";pending=false;pendingReverse=false;pendingOp="";clearRemoteMenu=false;
-  pairings=next;pairKey=pairings.hosts[index].key.c_str();hostIp=hostEndpoints[index].ip;hostEpoch=hostEndpoints[index].epoch;hostPort=hostEndpoints[index].port;
+  const bool keepReverse=index==pairings.selected&&reverseReady&&reverseClient.connected();
+  if(!keepReverse){reverseClient.stop();reverseReady=false;reverseLine="";reverseServer.end();reverseServer.begin();}
+  pending=false;pendingReverse=false;pendingOp="";clearRemoteMenu=false;
+  pairings=next;pairKey=pairings.hosts[index].key.c_str();
+  if(!keepReverse){hostIp=hostEndpoints[index].ip;hostEpoch=hostEndpoints[index].epoch;hostPort=hostEndpoints[index].port;}
   remoteView.clear();lastResponse=0;expectedMenu="";listInitial=false;menuHistory.clear();readerOffset=0;dirty=true;return true;
 }
 int candidateFor(const String& id){for(int i=0;i<discoveredCount;i++)if(discoveredHosts[i].id==id)return i;return -1;}
@@ -232,7 +235,8 @@ void readReverse(){
     char c=reverseClient.read();if(c=='\r')continue;if(c!='\n'){if(reverseLine.length()>=24000){reverseClient.stop();reverseLine="";return;}reverseLine+=c;continue;}
     DynamicJsonDocument d(24576);DeserializationError err=deserializeJson(d,reverseLine);reverseLine="";if(err){reverseClient.stop();return;}
     if(!reverseReady){String epoch=d["epoch"].as<String>();if(String(d["type"]|"")!="reverse-auth"||d["nonce"].as<String>()!=reverseChallenge||!hex(epoch,32)||pairKey.length()!=64||!safeEqual(d["mac"].as<String>(),hmac("reverse\n"+reverseChallenge+"\n"+epoch))){reverseClient.stop();return;}
-      hostEpoch=epoch;hostIp=reverseClient.remoteIP().toString();reverseReady=true;notice=tr(Ui::PcConnected);dirty=true;if(!pending)lastPoll=0;continue;
+      hostEpoch=epoch;hostIp=reverseClient.remoteIP().toString();reverseReady=true;notice=tr(Ui::PcConnected);dirty=true;
+      if(!pending){lastPoll=0;if(connection.needsViewAfterTransport(page==MIDDLEWARE_FIND))request("poll");}continue;
     }
     if(!pending||!pendingReverse||d["seq"].as<uint32_t>()!=pendingId||d["boot"].as<String>()!=bootId||d["epoch"].as<String>()!=hostEpoch)continue;
     String payload=d["payload"].as<String>();if(!safeEqual(d["mac"].as<String>(),hmac(material("response",pendingId,payload))))continue;
