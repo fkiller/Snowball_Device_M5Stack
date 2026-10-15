@@ -62,6 +62,14 @@ public:
 constexpr int ScreenWidth=320,ScreenHeight=240,TopHeight=30,BottomY=213,BottomHeight=27;
 constexpr int BoxWidth=104,BoxStride=106;
 constexpr int ContentRows=12,ContentLineHeight=14,ContentTextY=35;
+struct ReaderWindow {
+  int received,requested,count;
+  int source(int row)const{
+    if(row<0||row>=ContentRows)return -1;
+    int index=requested-received+row;
+    return index>=0&&index<count?index:-1;
+  }
+};
 struct Scrollbar {int top,height;};
 inline Scrollbar scrollbar(int total,int visible,int offset,int track){
   if(total<=visible||total<=0)return {0,track};

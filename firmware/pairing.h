@@ -12,6 +12,10 @@ struct Pairings {
   int selected=-1;
   bool selectedIdentityKnown()const{return selected>=0&&(size_t)selected<count&&hosts[selected].confirmed&&hostIdentity(hosts[selected].id);}
   int find(const std::string& id)const{for(size_t i=0;i<count;i++)if(hosts[i].id==id)return (int)i;return -1;}
+  // An unresolved legacy key is retained for signed migration, not a PC.
+  int visibleIndex(int row)const{if(row<0)return -1;for(size_t i=0;i<count;i++)if(hostIdentity(hosts[i].id)&&row--==0)return (int)i;return -1;}
+  int visibleCount()const{int n=0;for(size_t i=0;i<count;i++)if(hostIdentity(hosts[i].id))n++;return n;}
+  int visibleRow(int index)const{for(int row=0;row<visibleCount();row++)if(visibleIndex(row)==index)return row;return -1;}
   int enroll(const std::string& id,const std::string& key,const std::string& name){
     if(!hostIdentity(id)||!lowerHex(key,64)||name.size()>128)return -1;
     int i=find(id);
@@ -28,7 +32,7 @@ struct Pairings {
     if(i>=0){if(!lowerHex(key,64)||name.size()>128)return -1;hosts[i]={id,key,name,false};return i;}
     i=enroll(id,key,name);if(i>=0)hosts[i].confirmed=false;return i;
   }
-  bool choose(int i,bool sending){if(sending||i<0||(size_t)i>=count||!hosts[i].confirmed)return false;selected=i;return true;}
+  bool choose(int i,bool sending){if(sending||i<0||(size_t)i>=count||!hosts[i].confirmed||!hostIdentity(hosts[i].id))return false;selected=i;return true;}
   bool remove(int i){if(i<0||(size_t)i>=count)return false;for(size_t n=i;n+1<count;n++)hosts[n]=hosts[n+1];hosts[--count]={};if(selected==i)selected=-1;else if(selected>i)--selected;return true;}
 };
 }

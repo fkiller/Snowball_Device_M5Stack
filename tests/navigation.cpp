@@ -69,6 +69,12 @@ int main(){
   static_assert(2+2*BoxStride+BoxWidth<=ScreenWidth,"ABC boxes overflow");
   static_assert(BottomY+BottomHeight==ScreenHeight,"Footer exceeds LCD");
   static_assert(ContentTextY+ContentRows*ContentLineHeight<BottomY,"Content overlaps footer");
+  ReaderWindow current{24,24,12},down{24,25,12},up{24,23,12},pageAhead{24,36,12};
+  for(int row=0;row<12;row++)assert(current.source(row)==row);
+  assert(down.source(0)==1&&down.source(10)==11&&down.source(11)==-1);
+  assert(up.source(0)==-1&&up.source(1)==0&&up.source(11)==10);
+  for(int row=0;row<12;row++)assert(pageAhead.source(row)==-1);
+  assert(current.source(-1)==-1&&current.source(12)==-1);
   MenuHistory history;Navigation settings;settings.list(6,4,0);
   assert(history.remember(8,settings));Navigation language;language.list(2,1,0);
   int parent=-1;assert(history.restore(13,parent,language));assert(parent==8&&language.index==4&&language.focus==Focus::Content);

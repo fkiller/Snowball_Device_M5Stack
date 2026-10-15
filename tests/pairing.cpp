@@ -7,8 +7,13 @@ int main(){
   assert(!p.selectedIdentityKnown());
   assert(p.migrateLegacy(keyA));assert(p.selected==0);
   assert(!p.selectedIdentityKnown()); // A retained single key is not a resolved PC destination.
+  assert(p.visibleCount()==0&&p.visibleIndex(0)==-1&&p.visibleRow(0)==-1);
+  assert(!p.choose(0,false));
   assert(p.enroll(b,keyB,"395")==1);assert(p.hosts[0].key==keyA);assert(p.selected==0);
+  assert(p.visibleCount()==1&&p.visibleIndex(0)==1&&p.visibleRow(1)==0);
+  assert(p.visibleIndex(-1)==-1&&p.visibleIndex(1)==-1);
   assert(p.enroll(a,keyA,"Original PC")==0);assert(p.count==2);
+  assert(p.visibleCount()==2&&p.visibleRow(1)==1&&p.visibleIndex(0)==0);
   assert(p.selectedIdentityKnown()); // Signed discovery may resolve the original key.
   assert(p.choose(1,false));assert(!p.choose(0,true));assert(p.selected==1);
   assert(p.enroll(a,keyB,"Spoof")<0);assert(p.hosts[0].key==keyA);
