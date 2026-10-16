@@ -66,6 +66,8 @@ class FlashConfig(unittest.TestCase):
             total, events, calls = 2 * 1024 * 1024 + 4096, [], []
             def reader(args, capture=False, on_output=None):
                 self.assertIn('read_flash', args)
+                self.assertEqual(args[args.index('--before') + 1], 'no_reset')
+                self.assertEqual(args[args.index('--after') + 1], 'no_reset')
                 offset, length = map(int, args[-3:-1])
                 baud = args[args.index('--baud') + 1]
                 calls.append((offset, length, baud))
@@ -82,6 +84,55 @@ class FlashConfig(unittest.TestCase):
             counts = [event['completedBytes'] for event in events]
             self.assertEqual(counts, sorted(counts))
             self.assertEqual(counts[-1], total)
+
+    def test_prewrite_nvs_check_requires_exact_backup_bytes_and_removes_private_capture(self):
+        with tempfile.TemporaryDirectory() as directory:
+            backup = Path(directory) / 'backup.bin'
+            original = b'\xff' * 0x9000 + bytes(range(256)) * 80
+            def reader(args, **kwargs):
+                self.assertEqual(args[args.index('--before')+1], 'no_reset')
+                self.assertEqual(args[args.index('--after')+1], 'no_reset')
+                self.assertIn('read_flash', args)
+                Path(args[-1]).write_bytes(original[0x9000:0xe000])
+            with patch.object(installer, 'run', side_effect=reader):
+                installer.verify_nvs_before_flash('metadata-only', backup, original, 0x9000, 0x5000)
+            self.assertFalse(backup.with_suffix('.nvs-before-write').exists())
+
+    def test_prewrite_changed_nvs_reboots_existing_image_without_any_flash_write(self):
+        # File/command-plan fault injection, never a simulated USB acceptance.
+        with tempfile.TemporaryDirectory() as directory:
+            backup, calls = Path(directory) / 'backup.bin', []
+            original = b'\xff' * 0xe000
+            def child(args, **kwargs):
+                calls.append(args)
+                if 'read_flash' in args:
+                    changed = bytearray(original[0x9000:0xe000]); changed[0] ^= 1
+                    Path(args[-1]).write_bytes(changed)
+            with patch.object(installer, 'run', side_effect=child), patch.object(installer, 'read_hello') as hello:
+                with self.assertRaisesRegex(RuntimeError, 'nvs_changed_before_flash_no_write'):
+                    installer.verify_nvs_before_flash('metadata-only', backup, original, 0x9000, 0x5000)
+            hello.assert_called_once_with('metadata-only', timeout=8, require_faces=False)
+            self.assertEqual(len(calls), 2)
+            self.assertIn('hard_reset', calls[-1])
+            self.assertFalse(any('write_flash' in args for args in calls))
+            self.assertFalse(backup.with_suffix('.nvs-before-write').exists())
+
+    def test_prewrite_mismatch_does_not_claim_restart_when_native_hello_fails(self):
+        with tempfile.TemporaryDirectory() as directory:
+            backup = Path(directory) / 'backup.bin'
+            def child(args, **kwargs):
+                if 'read_flash' in args:
+                    Path(args[-1]).write_bytes(b'\0' * 0x5000)
+                self.assertNotIn('write_flash', args)
+            with patch.object(installer, 'run', side_effect=child), patch.object(installer, 'read_hello', side_effect=RuntimeError('no hello')):
+                with self.assertRaisesRegex(RuntimeError, 'nvs_changed_before_flash_reboot_unconfirmed'):
+                    installer.verify_nvs_before_flash('metadata-only', backup, b'\xff'*0xe000, 0x9000, 0x5000)
+            self.assertFalse(backup.with_suffix('.nvs-before-write').exists())
+
+    def test_nvs_still_rejects_deletion_of_last_wifi_driver_entry(self):
+        before, _ = self.same_wifi_append()
+        after = bytearray(before); after[32] = 0xfc
+        self.assertFalse(installer.nvs_preserved(before, after))
 
     def test_exhausted_reads_never_publish_full_backup_or_start_firmware_writes(self):
         with tempfile.TemporaryDirectory() as directory:

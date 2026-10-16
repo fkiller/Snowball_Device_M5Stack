@@ -87,7 +87,7 @@ def read_flash_backup(port, backup, total, progress):
                     chunk.unlink(missing_ok=True)
                     counters = BackupProgress(length, lambda phase, **data: report(offset + data['completedBytes']))
                     try:
-                        run(['-m', 'esptool', '--port', port, '--chip', 'esp32', '--baud', str(baud),
+                        run(['-m', 'esptool', '--port', port, '--chip', 'esp32', '--baud', str(baud), '--before', 'no_reset',
                              '--after', 'no_reset', 'read_flash', str(offset), str(length), str(chunk)],
                             capture=True, on_output=counters)
                     except subprocess.CalledProcessError:
@@ -220,10 +220,32 @@ def nvs_preserved(before, after):
             and entry[8:24].split(b'\0', 1)[0] == b'WIFI_STA_DEF')
 
 
+def verify_nvs_before_flash(port, backup, original, start, size):
+    """Refuse an incoherent backup before any firmware write can start.
+
+    All reads after identification synchronize with the existing loader, without
+    resetting the application between chunks/build/write/verification. Never
+    repair settings or relax verification when the saved bytes have changed.
+    """
+    check = backup.with_suffix('.nvs-before-write')
+    try:
+        run(['-m', 'esptool', '--port', port, '--chip', 'esp32', '--baud', '115200',
+             '--before', 'no_reset', '--after', 'no_reset', 'read_flash', hex(start), str(size), str(check)], capture=True)
+        if check.read_bytes() != original[start:start + size]:
+            try:
+                run(['-m', 'esptool', '--port', port, '--chip', 'esp32', '--after', 'hard_reset', 'run'], capture=True)
+                read_hello(port, timeout=8, require_faces=False)
+            except Exception as error:
+                raise RuntimeError('nvs_changed_before_flash_reboot_unconfirmed') from error
+            raise RuntimeError('nvs_changed_before_flash_no_write')
+    finally:
+        check.unlink(missing_ok=True)
+
+
 def install_firmware(port, backup_directory, progress=lambda phase, **details: None):
     # Nothing below is invoked by detection. The UI/CLI must explicitly approve.
     progress('identify')
-    probe = run(['-m', 'esptool', '--port', port, '--chip', 'esp32', '--after', 'no_reset', 'flash_id'], capture=True)
+    probe = run(['-m', 'esptool', '--port', port, '--chip', 'esp32', '--before', 'default_reset', '--after', 'no_reset', 'flash_id'], capture=True)
     match = re.search(r'Detected flash size:\s*(4|16)MB', probe)
     mac = re.search(r'MAC:\s*([0-9a-f:]{17})', probe, re.I)
     if not match or not mac or 'ESP32' not in probe:
@@ -248,22 +270,24 @@ def install_firmware(port, backup_directory, progress=lambda phase, **details: N
     run(['-m', 'platformio', 'run', '--project-conf', str(config)], capture=True)
     plan = json.loads((ROOT / '.pio/build/m5stack-core-esp32/flash-plan.json').read_text(encoding='utf-8'))
     nvs_start, nvs_size = validate_flash_plan(plan, original, len(original))
+    progress('verify-backup-settings')
+    verify_nvs_before_flash(port, backup, original, nvs_start, nvs_size)
     progress('flash')
     images = [value for image in sorted(plan['images'], key=lambda i: i['offset'])
               for value in (hex(image['offset']), image['path'])]
     # Keep the app stopped until the retained NVS bytes have been verified.
-    run(['-m', 'esptool', '--port', port, '--chip', 'esp32', '--baud', '460800', '--after', 'no_reset',
+    run(['-m', 'esptool', '--port', port, '--chip', 'esp32', '--baud', '460800', '--before', 'no_reset', '--after', 'no_reset',
          'write_flash', '--flash_size', f'{size_mb}MB', *images], capture=True)
     progress('verify-nvs')
     retained = backup.with_suffix('.nvs-check')
     try:
-        run(['-m', 'esptool', '--port', port, '--chip', 'esp32', '--baud', '460800', '--after', 'no_reset', 'read_flash', hex(nvs_start), str(nvs_size), str(retained)], capture=True)
+        run(['-m', 'esptool', '--port', port, '--chip', 'esp32', '--baud', '460800', '--before', 'no_reset', '--after', 'no_reset', 'read_flash', hex(nvs_start), str(nvs_size), str(retained)], capture=True)
         if not nvs_preserved(original[nvs_start:nvs_start + nvs_size], retained.read_bytes()):
             raise RuntimeError('nvs_preservation_failed_restore_backup')
     finally:
         retained.unlink(missing_ok=True)
     progress('reboot')
-    run(['-m', 'esptool', '--port', port, '--chip', 'esp32', '--after', 'hard_reset', 'run'], capture=True)
+    run(['-m', 'esptool', '--port', port, '--chip', 'esp32', '--before', 'no_reset', '--after', 'hard_reset', 'run'], capture=True)
     return backup
 
 def main():
