@@ -3,7 +3,7 @@ import {flattenSessions,validateAction} from './protocol.mjs';
 import {translate,validLocale} from './i18n.mjs';
 
 export const LIST_ROWS=7, CONTENT_ROWS=12;
-const projectKey=s=>String(s.cwd??s.project??'');
+const projectKey=s=>String(s.projectRoot??s.cwd??s.project??'');
 export function activityTime(value){
   if(typeof value==='number'&&Number.isFinite(value))return value<1e11?value*1000:value;
   if(typeof value==='string'){if(/^\d+(\.\d+)?$/.test(value))return activityTime(Number(value));const n=Date.parse(value);if(Number.isFinite(n))return n;}
@@ -111,7 +111,7 @@ export class DeviceNavigation {
     this.list('sessions',items,Math.max(0,selected));
   }
   listProjects(s){
-    const items=[...new Map(flattenSessions(s).filter(target=>target.pluginId===this.harness).map(target=>[projectKey(target),{key:projectKey(target),label:target.project??projectKey(target)}])).values()];
+    const items=s.navigationCatalog?.[this.harness]?.map(project=>({key:project.root,label:project.displayName}))??[...new Map(flattenSessions(s).filter(target=>target.pluginId===this.harness).map(target=>[projectKey(target),{key:projectKey(target),label:target.project??projectKey(target)}])).values()];
     this.list('projects',items,Math.max(0,items.findIndex(it=>it.key===this.project)));
   }
   choose(s,targets){

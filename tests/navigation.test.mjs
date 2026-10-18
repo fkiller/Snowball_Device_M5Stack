@@ -2,6 +2,16 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {DeviceNavigation,windowStart,harnessAbbreviation,wrapLines,sessionText,latestSession,CONTENT_ROWS} from '../src/navigation.mjs';
 const snapshot={accessMode:'local-no-auth',hostname:'REAL-PC',realSessions:{'snowball.codex':{project:Array.from({length:30},(_,i)=>({id:'n'+i,sessionKey:'k'+i,title:'Session '+i,ownerId:'real-owner',revision:7,readOnly:false}))},'snowball.antigravity':{other:[{id:'agy',sessionKey:'agy-key',title:'AGY session',readOnly:true}]}},commands:[],turnsStore:{k14:[{role:'user',text:'native question',agentResponse:'실제 응답\n'+('line\n'.repeat(100))}]}};
+
+test('shared native catalog order groups worktrees while preserving their execution cwd',async()=>{
+  const state={...snapshot,navigationCatalog:{'snowball.codex':[
+    {id:'empty',root:'/empty',displayName:'Native first',sessions:[]},
+    {id:'main',root:'/main',displayName:'Project',sessions:[{id:'worktree',sessionKey:'tree',cwd:'/worktrees/task',title:'Actual task',readOnly:true}]}
+  ]}};
+  const nav=new DeviceNavigation({api:async()=>state,saved:{harness:'snowball.codex'}});
+  await nav.action({op:'projects'});assert.deepEqual(nav.menu.map(p=>p.key),['/empty','/main']);
+  await nav.action({op:'select',index:1});assert.equal(nav.project,'/main');assert.equal(nav.selection.cwd,'/worktrees/task');
+});
 test('display locale remains controller-local and preserves native text and targets',async()=>{
   const a=new DeviceNavigation({api:async()=>snapshot,saved:{sessionKey:'k14'}});
   const b=new DeviceNavigation({api:async()=>snapshot,saved:{sessionKey:'k14'}});

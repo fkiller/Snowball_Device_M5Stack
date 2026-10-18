@@ -27,6 +27,8 @@
 
 **Install Snowball once per PC.** The default installation includes the Web UI, MK20 discovery/transport and speech runtime, M5Stack discovery/gateway, and all three Codex/Antigravity/OpenCode harness plugins. No device profile selection or connected USB device is needed.
 
+The gateway uses the middleware native project catalog when available: assigned worktrees stay in their native project, actual session working directories stay intact, and recent Snowball selections precede untouched native order. Update the PC software for this change; no M5Stack firmware write is required.
+
 Expand your platform and copy its command.
 
 <details open>

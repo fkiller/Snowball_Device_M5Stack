@@ -76,7 +76,8 @@ async function initializeController(){
 }
 async function checkpointController(){
   controller.persist();const n=controller.saved;
-  const patch={selection:{...(n.harness?{harnessPluginId:n.harness,harnessInstanceId:'default'}:{}),...(n.sessionKey?{sessionKey:n.sessionKey}:{})},preferences:{language:n.locale,model:n.model??'',effort:n.effort??'',access:n.access??'',skinId:n.skin,scroll:n.scroll}};
+  const projectName=(controller.snapshotCache?.navigationCatalog?.[n.harness]??[]).find(p=>p.root===controller.project)?.id??'';
+  const patch={selection:{...(n.harness?{harnessPluginId:n.harness,harnessInstanceId:'default'}:{}),...(n.sessionKey?{sessionKey:n.sessionKey}:{})},preferences:{language:n.locale,model:n.model??'',effort:n.effort??'',access:n.access??'',skinId:n.skin,scroll:n.scroll,projectName}};
   const encoded=JSON.stringify(patch);if(encoded===lastCheckpoint)return;
   try{ownedState=await api('/v1/controller',{expectedRevision:ownedState.revision,patch});lastCheckpoint=encoded;}
   catch(error){if(error.message==='stale_controller_revision'){ownedState=await api('/v1/controller');throw Error('controller_state_changed');}throw error;}

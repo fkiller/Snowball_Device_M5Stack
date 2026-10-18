@@ -22,7 +22,7 @@ export class ReplayGuard {
 }
 export function flattenSessions(snapshot) {
   const journal=new Map((snapshot.sessions??[]).map(s=>[s.sessionKey,s]));
-  const native=snapshot.realSessions ? Object.entries(snapshot.realSessions).flatMap(([pluginId,projects])=>Object.entries(projects).flatMap(([project,items])=>items.map(s=>({...s,pluginId,project})))) : snapshot.sessionDetails??[];
+  const native=snapshot.navigationCatalog ? Object.entries(snapshot.navigationCatalog).flatMap(([pluginId,projects])=>projects.flatMap(project=>project.sessions.map(s=>({...s,pluginId,project:project.displayName,projectRoot:project.root})))) : snapshot.realSessions ? Object.entries(snapshot.realSessions).flatMap(([pluginId,projects])=>Object.entries(projects).flatMap(([project,items])=>items.map(s=>({...s,pluginId,project})))) : snapshot.sessionDetails??[];
   return native.filter(s=>typeof s.sessionKey==='string').map(s=>({...s,...journal.get(s.sessionKey),label:`${s.pluginId??''} / ${s.project??''} / ${s.title??s.nativeSessionId??s.id??''}`}));
 }
 export function validateAction(action) {
