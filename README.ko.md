@@ -204,6 +204,8 @@ python -m venv .venv
 
 기존 Snowball 미들웨어를 루프백 8765에서 실행하세요. 게이트웨이는 실제 세션 저널·목록·모델 카탈로그·명령 API를 사용합니다. 첫 버전은 기존 세션을 선택하며 새 세션 생성은 미들웨어에서 관리합니다.
 
+큰 네이티브 이력은 선택한 세션만 revision을 확인하는 조각으로 읽으며 본문을 자르지 않습니다. 공통 Update 명령으로 PC 미들웨어와 게이트웨이를 함께 갱신하세요. 이 호스트 수정에는 기기 플래싱이 필요하지 않습니다.
+
 ```powershell
 node scripts/gateway.mjs --serial COM7 --python .venv\Scripts\python.exe
 # 독립 Wi-Fi 제어: PC의 실제 사설 LAN 주소 지정

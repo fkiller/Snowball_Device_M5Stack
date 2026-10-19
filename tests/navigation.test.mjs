@@ -3,6 +3,20 @@ import assert from 'node:assert/strict';
 import {DeviceNavigation,windowStart,harnessAbbreviation,wrapLines,sessionText,latestSession,CONTENT_ROWS} from '../src/navigation.mjs';
 const snapshot={accessMode:'local-no-auth',hostname:'REAL-PC',realSessions:{'snowball.codex':{project:Array.from({length:30},(_,i)=>({id:'n'+i,sessionKey:'k'+i,title:'Session '+i,ownerId:'real-owner',revision:7,readOnly:false}))},'snowball.antigravity':{other:[{id:'agy',sessionKey:'agy-key',title:'AGY session',readOnly:true}]}},commands:[],turnsStore:{k14:[{role:'user',text:'native question',agentResponse:'실제 응답\n'+('line\n'.repeat(100))}]}};
 
+test('deferred transcripts preserve all Unicode content and reload only for the selected session/cursor',async()=>{
+  const turns=[{role:'agent',text:'한글😀 row\n'.repeat(200)+'final marker'}],json=JSON.stringify(turns);
+  const state={...snapshot,cursor:'test:1',transcriptsDeferred:true,turnsStore:null};let pages=0;
+  const navigation=new DeviceNavigation({saved:{sessionKey:'k14'},api:async(route,body)=>{
+    if(route==='/v1/snapshot')return state;
+    assert.equal(route,'/v1/transcript');assert.equal(body.sessionKey,'k14');pages++;
+    const chunk=json.slice(body.offset,body.offset+511),next=body.offset+chunk.length;
+    return {sessionKey:body.sessionKey,revision:'a'.repeat(64),offset:body.offset,chunk,nextOffset:next<json.length?next:null};
+  }});
+  await navigation.action({op:'poll'});assert.ok(navigation.contentLines.join('\n').includes('final marker'));
+  const loaded=pages;await navigation.action({op:'poll'});assert.equal(pages,loaded);
+  state.cursor='test:2';await navigation.action({op:'poll'});assert.ok(pages>loaded);
+});
+
 test('shared native catalog order groups worktrees while preserving their execution cwd',async()=>{
   const state={...snapshot,navigationCatalog:{'snowball.codex':[
     {id:'empty',root:'/empty',displayName:'Native first',sessions:[]},

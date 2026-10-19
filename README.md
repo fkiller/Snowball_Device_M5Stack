@@ -206,6 +206,8 @@ The [common Windows installer](https://github.com/fkiller/Snowball_Middleware#in
 
 Start the existing Snowball middleware on loopback port 8765. The gateway uses its real session journal, session catalog, model catalog, and command API. Native session creation remains governed by the middleware; this release selects existing sessions.
 
+For large native histories, the gateway reads only the selected session in revision-checked chunks without truncating its text. Update the PC middleware and gateway together through the common Update command; this host correction does not require flashing the device.
+
 ```powershell
 node scripts/gateway.mjs --serial COM7 --python .venv\Scripts\python.exe
 # To enable standalone Wi-Fi control, explicitly bind your PC's private LAN IP:

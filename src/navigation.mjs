@@ -1,6 +1,7 @@
 import {createHash} from 'node:crypto';
 import {flattenSessions,validateAction} from './protocol.mjs';
 import {translate,validLocale} from './i18n.mjs';
+import {readTranscript} from './transcript.mjs';
 
 export const LIST_ROWS=7, CONTENT_ROWS=12;
 const projectKey=s=>String(s.projectRoot??s.cwd??s.project??'');
@@ -74,8 +75,16 @@ export class DeviceNavigation {
     return [...new Set([...Object.keys(s.realSessions??{}),...(s.connectedHarnesses??[]).map(h=>h.pluginId),
       ...flattenSessions(s).map(h=>h.pluginId)].filter(Boolean))].map(pluginId=>({label:s.harnessPresentations?.[pluginId]?.name??harnessAbbreviation(pluginId),pluginId}));
   }
-  sessionView(s){
+  async sessionView(s){
     const current=this.selection;
+    if(s.transcriptsDeferred&&current){
+      const key=current.sessionKey;
+      if(this.transcriptCache?.key!==key||this.transcriptCache.cursor!==s.cursor){
+        const turns=await readTranscript(this.api,key);
+        this.transcriptCache={key,cursor:s.cursor,turns};
+      }
+      s={...s,turnsStore:{[key]:this.transcriptCache.turns}};
+    }
     const text=sessionText(s,current,this.locale),hash=createHash('sha256').update((current?.sessionKey??'')+'\n'+text).digest('hex');
     if(hash!==this.contentHash){this.contentHash=hash;this.contentLines=text?wrapLines(text):[];}
     this.contentIndex=Math.max(0,Math.min(this.contentIndex,Math.max(0,this.contentLines.length-CONTENT_ROWS)));
